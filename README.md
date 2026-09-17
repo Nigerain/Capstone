@@ -7,7 +7,9 @@ A crowdsourced mobile app that allows shoppers search for grocery items, compare
 - [Tech Stack](#tech-stack)
 
 ## Project Purpose
-Commonly grocery prices differ a lot between stores. And there's no simple way for shoppers to compare them in real time. Grocery PricePal resolves this by allowing users search for a product, spots submitted prices from nearby stores and contribute their own price findings (either entering them in or scanning them). A reputation/voting system helps keep submitted prices reliable gradually.   
+Commonly grocery prices differ a lot between stores. And there's no simple way for shoppers to compare them in real time. Grocery PricePal resolves this issue where users can search for an item (e.g. "Ground Beef") and check out recent prices submitted by other users at nearby stores (Trader Joe's, Costco, Sam's Club, etc) instead of relying on speculation or memory when deciding where to shop. 
+
+Prices are submitted either manually or by snapping a photo of a price tag, which is processed with OCR to auto fill the item name, price, and unit. Since the data is crowdsourced, the app will include a voting/reputation system. Other users would be able to confirm or dispute submitted prices and users build reputation in accordance with how accurate their submissions turn out to be. Displayed prices weighted by submitter reputation, therefore the app surfaces most likely accurate current prices.  
 
 ## Features
 - Comparison View (Product detail): Compare side by side pricing for a specific item 
