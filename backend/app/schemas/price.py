@@ -1,5 +1,4 @@
-from pydantic import BaseModel 
-from typing import Optional 
+from pydantic import BaseModel, Field
 from datetime import date
 
 class PriceResponse(BaseModel):
@@ -17,3 +16,8 @@ class ItemPricesResponse(BaseModel):
     prices: list[PriceResponse]
 
 
+class PriceCreate(BaseModel):
+    itemId: str
+    storeId: str
+    price: float = Field(gt=0)
+    isPublic: bool = True

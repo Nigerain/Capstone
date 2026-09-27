@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api import items,auth
+from app.api import items,auth, prices, ocr
 from app import firebase
 
 app = FastAPI(
@@ -15,6 +15,14 @@ app.include_router(
 )
 app.include_router(
     auth.router,
+    prefix="/api/v1"
+)
+app.include_router(
+    prices.router,
+    prefix="/api/v1"
+)
+app.include_router(
+    ocr.router,
     prefix="/api/v1"
 )
 
