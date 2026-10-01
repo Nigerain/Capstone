@@ -1,9 +1,2 @@
-import { View, Text } from 'react-native';
-
-export default function ProfileScreen() {
-  return (
-    <View>
-      <Text>Profile Screen</Text>
-    </View>
-  );
-}
+import { PlaceholderScreen } from './PlaceholderScreen';
+export const ProfileScreen = () => <PlaceholderScreen title="Profile" />;
