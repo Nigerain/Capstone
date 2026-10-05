@@ -1,35 +1,46 @@
 import { useState } from 'react';
-import { View, TextInput, FlatList, Text, StyleSheet } from 'react-native';
+import { FlatList, StyleSheet, Text, View } from 'react-native';
+
+import { ProductCard } from '../components/ProductCard';
+import { SearchBar } from '../components/SearchBar';
 import { useSearchItems } from '../hooks/useSearchItems';
+import { colors, spacing, typography } from '../theme';
+import { formatPrice } from '../utils/format';
 
 export default function SearchScreen() {
   const [query, setQuery] = useState('');
   const { data: items, isLoading, isError } = useSearchItems(query);
 
+  // For each item, keep only its cheapest price, and skip items with no prices.
+  const results = (items ?? [])
+    .map((item) => {
+      const best = [...item.prices].sort((a, b) => a.price - b.price)[0];
+      return best ? { item, best } : null;
+    })
+    .filter((r) => r !== null);
+
+  const lowestPrice = Math.min(...results.map((r) => r.best.price));
+
   return (
     <View style={styles.container}>
-      <TextInput
-        style={styles.input}
-        placeholder="Search for an item (e.g. chicken breast)"
-        value={query}
-        onChangeText={setQuery}
-      />
+      <SearchBar value={query} onChangeText={setQuery} />
 
-      {isLoading && <Text>Loading...</Text>}
-      {isError && <Text>Something went wrong.</Text>}
+      {isLoading && <Text style={[typography.meta, styles.status]}>Loading…</Text>}
+      {isError && <Text style={[typography.meta, styles.status]}>Something went wrong.</Text>}
 
       <FlatList
-        data={items}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.itemCard}>
-            <Text style={styles.itemName}>{item.name}</Text>
-            {item.prices.map((price) => (
-              <Text key={price.id}>
-                ${price.price.toFixed(2)}/{price.unit} at {price.store}
-              </Text>
-            ))}
-          </View>
+        data={results}
+        keyExtractor={(r) => r.item.id}
+        contentContainerStyle={styles.list}
+        keyboardShouldPersistTaps="handled"
+        renderItem={({ item: { item, best } }) => (
+          <ProductCard
+            name={item.name}
+            price={best.price}
+            unitPrice={`${formatPrice(best.price)}/${best.unit}`}
+            store={best.store}
+            isBest={best.price === lowestPrice}
+          />
         )}
       />
     </View>
@@ -37,19 +48,12 @@ export default function SearchScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, paddingTop: 16 },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+    paddingHorizontal: spacing.gutter,
+    paddingTop: spacing.lg,
   },
-  itemCard: {
-    marginBottom: 12,
-    padding: 12,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 8,
-  },
-  itemName: { fontWeight: 'bold', marginBottom: 4 },
+  status: { marginTop: spacing.md },
+  list: { gap: 10, paddingTop: spacing.lg, paddingBottom: spacing.xl },
 });
