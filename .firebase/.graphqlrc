@@ -1,0 +1,1 @@
+{"schema":["../backend/dataconnect/.dataconnect/**/*.gql","../backend/dataconnect/schema/**/*.gql"],"document":["../backend/dataconnect/endpoint/**/*.gql"]}

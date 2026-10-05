@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+
+# Python environments and cache
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Environment settings; keep example templates
+.env
+.env.*
+!.env.example
+
+# Firebase credentials, emulator data, and logs
+grocerypricepal-firebase-adminsdk-fbsvc-32193f0a2c.json
+.dataconnect/
+firebase-debug.log*
+ui-debug.log*
+
+# Expo and build output
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Generated Expo native folders
+/frontend/ios/
+/frontend/android/
+
+# Native tooling and signing credentials
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# Package manager logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Operating system files
+.DS_Store
+Thumbs.db

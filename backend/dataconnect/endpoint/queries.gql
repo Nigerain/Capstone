@@ -1,0 +1,80 @@
+# help you search for items. Doesn't care about upper or lower case. 
+query SearchItems($pattern: String!) @auth(level: NO_ACCESS) {
+  items(
+    where: {
+      itemName: {
+        pattern: {
+          like: $pattern
+          ignoreCase: true
+        }
+      }
+    }
+    orderBy: { itemName: ASC }
+    limit: 20
+  )
+
+  {
+    id
+    itemName
+    brand
+    unitSize
+  }
+}
+
+# Grab the price of the item if it's public
+query GetItemPrices($itemId: UUID!) @auth(level: NO_ACCESS) {
+  priceRecords(
+    where: {
+      itemId: { eq: $itemId }
+      isPublic: { eq: true }
+    }
+    orderBy: { dateRecorded: DESC }
+    limit: 50
+  )
+
+  {
+    id
+    price
+    dateRecorded
+    isPublic
+
+    item {
+      id
+      itemName
+      brand
+      unitSize
+    }
+
+    store {
+      id
+      storeName
+      storeLocation
+    }
+
+    user {
+      id
+    }
+  }
+}
+
+# Let you search for stores when you're trying to submit a  price.
+query SearchStores($pattern: String!) @auth(level: NO_ACCESS) {
+  stores(
+    where: {
+      storeName: {
+        pattern: {
+          like: $pattern
+          ignoreCase: true
+        }
+      }
+    }
+    orderBy: { storeName: ASC }
+    limit: 20
+  )
+  
+  {
+    id
+    storeName
+    storeLocation
+  }
+}

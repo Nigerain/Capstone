@@ -1,0 +1,65 @@
+# create their account the database supplythem their uuid.
+mutation CreateUserProfile(
+  $userId: String!
+  $username: String!
+  $firstName: String!
+  $lastName: String!
+  $email: String!
+) @auth(level: NO_ACCESS) {
+  user_insert(
+    data: {
+      id: $userId
+      username: $username
+      firstName: $firstName
+      lastName: $lastName
+      email: $email
+    }
+  )
+}
+
+# They save a price manually or using ocr
+mutation CreatePrice(
+  $itemId: UUID!
+  $storeId: UUID!
+  $userId: String!
+  $price: Float!
+  $isPublic: Boolean!
+) @auth(level: NO_ACCESS) {
+  priceRecord_insert(
+    data: {
+      itemId: $itemId
+      storeId: $storeId
+      userId: $userId
+      price: $price
+      isPublic: $isPublic
+    }
+  )
+}
+
+# verify they're logged in and authenicated before letting them make items. 
+mutation CreateItem(
+  $itemName: String!
+  $brand: String
+  $unitSize: String
+) @auth(level: NO_ACCESS) {
+  item_insert(
+    data: {
+      itemName: $itemName
+      brand: $brand
+      unitSize: $unitSize
+    }
+  )
+}
+
+# verify they're logged in and authenicated before letting them make stores. 
+mutation CreateStore(
+  $storeName: String!
+  $storeLocation: String
+) @auth(level: NO_ACCESS) {
+  store_insert(
+    data: {
+      storeName: $storeName
+      storeLocation: $storeLocation
+    }
+  )
+}

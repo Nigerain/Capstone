@@ -1,0 +1,41 @@
+type User @table {
+  id: String! @default(expr: "auth.uid")
+  username: String!
+  firstName: String! @col(name: "first_name")
+  lastName: String! @col(name: "last_name")
+  email: String!
+}
+
+type Store @table {
+  id: UUID! @default(expr: "uuidV4()")
+  storeName: String! @col(name: "store_name")
+  storeLocation: String @col(name: "store_location")
+}
+
+type Category @table {
+  id: UUID! @default(expr: "uuidV4()")
+  categoryName: String! @col(name: "category_name")
+}
+
+type Item @table {
+  id: UUID! @default(expr: "uuidV4()")
+  itemName: String! @col(name: "item_name")
+  brand: String
+  unitSize: String @col(name: "unit_size")
+}
+
+type ItemCategory @table(key: ["item", "category"]) {
+  item: Item!
+  category: Category!
+}
+
+type PriceRecord @table {
+  id: UUID! @default(expr: "uuidV4()")
+  price: Float!
+  dateRecorded: Date! @default(expr: "request.time") @col(name: "date_recorded")
+  isPublic: Boolean! @default(value: true) @col(name: "is_public")
+
+  store: Store!
+  item: Item!
+  user: User!
+}

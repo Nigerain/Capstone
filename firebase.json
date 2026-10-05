@@ -1,0 +1,10 @@
+{
+  "emulators": {
+    "dataconnect": {
+      "dataDir": "backend/dataconnect/.dataconnect/pgliteData"
+    }
+  },
+  "dataconnect": {
+    "source": "backend/dataconnect"
+  }
+}
