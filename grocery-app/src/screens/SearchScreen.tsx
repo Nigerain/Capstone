@@ -5,7 +5,8 @@ import { ProductCard } from '../components/ProductCard';
 import { SearchBar } from '../components/SearchBar';
 import { useSearchItems } from '../hooks/useSearchItems';
 import { colors, spacing, typography } from '../theme';
-import { formatPrice } from '../utils/format';
+import { getBestPrice, getUnitPrice } from '../utils/price';
+import { formatDistance, formatSize, formatUnitPrice } from '../utils/format';
 
 export default function SearchScreen() {
   const [query, setQuery] = useState('');
@@ -14,12 +15,12 @@ export default function SearchScreen() {
   // For each item, keep only its cheapest price, and skip items with no prices.
   const results = (items ?? [])
     .map((item) => {
-      const best = [...item.prices].sort((a, b) => a.price - b.price)[0];
-      return best ? { item, best } : null;
+      const best = getBestPrice(item);
+      return best ? { item, best, unitPrice: getUnitPrice(item, best) } : null;
     })
-    .filter((r) => r !== null);
+    .filter((r): r is NonNullable<typeof r> => r !== null);
 
-  const lowestPrice = Math.min(...results.map((r) => r.best.price));
+    const lowestUnitPrice = Math.min(...results.map((r) => r.unitPrice));
 
   return (
     <View style={styles.container}>
@@ -33,13 +34,14 @@ export default function SearchScreen() {
         keyExtractor={(r) => r.item.id}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
-        renderItem={({ item: { item, best } }) => (
+        renderItem={({ item: { item, best, unitPrice } }) => (
           <ProductCard
             name={item.name}
+            brandSize={`${item.brand} · ${formatSize(item.size, item.sizeUnit)}`}
             price={best.price}
-            unitPrice={`${formatPrice(best.price)}/${best.unit}`}
-            store={best.store}
-            isBest={best.price === lowestPrice}
+            unitPrice={formatUnitPrice(unitPrice, item.sizeUnit)}
+            store={`${best.store} · ${formatDistance(best.distanceMi)}`}
+            isBest={unitPrice === lowestUnitPrice}
           />
         )}
       />
