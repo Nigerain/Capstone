@@ -1,3 +1,5 @@
-ocr-decision-508919-8afd78832863.json
+ocr-decision-*.json
+*service-account*.json
+.env
 .DS_Store
 __pycache__/

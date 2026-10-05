@@ -10,12 +10,28 @@ from PIL import Image
 from google.cloud import vision
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-os.environ.setdefault(
-    "GOOGLE_APPLICATION_CREDENTIALS",
-    os.path.join(SCRIPT_DIR, "ocr-decision-508919-8afd78832863.json"),
-)
 
 pillow_heif.register_heif_opener()
+
+
+def get_vision_client():
+    """Lazily builds the Vision client so importing this module never
+    requires credentials — only calling this does. Google's client library
+    reads GOOGLE_APPLICATION_CREDENTIALS itself; we just check it up front
+    so a missing/bad path fails with a clear message instead of a library
+    stack trace deep inside an API call."""
+    cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if not cred_path or not os.path.isfile(cred_path):
+        raise RuntimeError(
+            "GOOGLE_APPLICATION_CREDENTIALS is not set to an existing file. "
+            "Set it to the path of your Google Cloud Vision service account "
+            "key, e.g.:\n"
+            "  export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your-key.json\n"
+            "See .env.example for the expected format. Ask a teammate for "
+            "the key file if you don't have one — it is not stored in the repo."
+        )
+    return vision.ImageAnnotatorClient()
+
 
 # A price like 4.19 or $4.19. Skips SKU-style codes ("3-4-5.099") and numbers
 # followed by a unit ("3.78 L", "18.200Z", "4.53 LB"), which are sizes/weights.
@@ -328,7 +344,7 @@ def scan_price_tag(image_path, client=None):
     """Entry point for one photo — what a backend endpoint calls. main()
     below only batch-tests this against the 38 ground-truthed photos."""
     if client is None:
-        client = vision.ImageAnnotatorClient()
+        client = get_vision_client()
     text = run_vision(client, image_path)
     price, _ = extract_final_price(text)
     return {
@@ -357,7 +373,7 @@ def main():
     folder = os.path.join(SCRIPT_DIR, "test_images")
     results_path = os.path.join(SCRIPT_DIR, "ocr_results.csv")
     ground_truth = load_existing_ground_truth(results_path)
-    client = vision.ImageAnnotatorClient()
+    client = get_vision_client()
     rows = []
 
     for filename in sorted(os.listdir(folder)):
