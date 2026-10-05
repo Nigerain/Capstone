@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { FlatList, StyleSheet, Text, View } from 'react-native';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 
 import { ProductCard } from '../components/ProductCard';
 import { SearchBar } from '../components/SearchBar';
@@ -10,10 +11,13 @@ import { formatDistance, formatSize, formatUnitPrice } from '../utils/format';
 
 export default function SearchScreen() {
   const [query, setQuery] = useState('');
-  const { data: items, isLoading, isError } = useSearchItems(query);
+  const debouncedQuery = useDebouncedValue(query, 300);
+  const { data: items, isLoading, isError } = useSearchItems(debouncedQuery);
+
+  const hasQuery = query.trim().length > 0;
 
   // For each item, keep only its cheapest price, and skip items with no prices.
-  const results = (items ?? [])
+  const results = (hasQuery ? (items ?? []) : [])
     .map((item) => {
       const best = getBestPrice(item);
       return best ? { item, best, unitPrice: getUnitPrice(item, best) } : null;
@@ -33,6 +37,7 @@ export default function SearchScreen() {
         data={results}
         keyExtractor={(r) => r.item.id}
         contentContainerStyle={styles.list}
+        keyboardDismissMode="on-drag"
         keyboardShouldPersistTaps="handled"
         renderItem={({ item: { item, best, unitPrice } }) => (
           <ProductCard
