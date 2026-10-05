@@ -4,6 +4,7 @@ type User @table {
   firstName: String! @col(name: "first_name")
   lastName: String! @col(name: "last_name")
   email: String!
+  createdAt: Timestamp! @default(expr: "request.time") @col(name: "created_at")
 }
 
 type Store @table {
@@ -34,8 +35,15 @@ type PriceRecord @table {
   price: Float!
   dateRecorded: Date! @default(expr: "request.time") @col(name: "date_recorded")
   isPublic: Boolean! @default(value: true) @col(name: "is_public")
-
+  #evaluationStatus: String! @default(value: "PENDING") @col(name: "evaluation_status") for now it's commented because I'm not sure if we want it to display instantly or pend
   store: Store!
   item: Item!
   user: User!
+}
+
+type PriceVote @table(key: ["priceRecord", "user"]) {
+  priceRecord: PriceRecord!
+  user: User!
+  isUpvote: Boolean! @col(name: "is_upvote")
+  createdAt: Timestamp! @default(expr: "request.time") @col(name: "created_at")
 }
