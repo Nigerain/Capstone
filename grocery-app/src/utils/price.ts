@@ -11,3 +11,10 @@ export function getBestPrice(item: Item): Price | undefined {
     undefined,
   );
 }
+
+export function getNearestPrice(item: Item): Price | undefined {
+  return item.prices.reduce<Price | undefined>(
+    (nearest, p) => (!nearest || p.distanceMi < nearest.distanceMi ? p : nearest),
+    undefined,
+  );
+}

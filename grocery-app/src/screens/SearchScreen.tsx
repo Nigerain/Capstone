@@ -2,6 +2,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useState } from 'react';
 import { FlatList, Keyboard, StyleSheet, Text, View } from 'react-native';
 
+import { Chip } from '../components/Chip';
 import { NoResults } from '../components/NoResults';
 import { ProductCard } from '../components/ProductCard';
 import { RecentSearches } from '../components/RecentSearches';
@@ -12,15 +13,23 @@ import { useSearchItems } from '../hooks/useSearchItems';
 import { useSearchStore } from '../store/useSearchStore';
 import { colors, spacing, typography } from '../theme';
 import { formatDistance, formatSize, formatUnitPrice } from '../utils/format';
-import { getBestPrice, getUnitPrice } from '../utils/price';
+import { getBestPrice, getNearestPrice, getUnitPrice } from '../utils/price';
 
 const MAX_SUGGESTIONS = 5;
+
+type SortOption = 'unitPrice' | 'distance';
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: 'unitPrice', label: 'Lowest unit price' },
+  { value: 'distance', label: 'Nearest' },
+];
 
 export default function SearchScreen() {
   const navigation = useNavigation();
 
-  const [query, setQuery] = useState(''); 
+  const [query, setQuery] = useState(''); // what's in the box right now
   const [submittedQuery, setSubmittedQuery] = useState(''); // the last thing actually searched
+  const [sortBy, setSortBy] = useState<SortOption>('unitPrice');
   const debouncedQuery = useDebouncedValue(query, 300);
 
   const suggestionsSearch = useSearchItems(debouncedQuery);
@@ -35,6 +44,7 @@ export default function SearchScreen() {
   const hasQuery = trimmed.length > 0;
   const isSubmitted = hasQuery && trimmed === submittedQuery;
 
+  // Every way of searching (keyboard, suggestion, recent, broader link) goes through here.
   const runSearch = (term: string) => {
     const cleaned = term.trim();
     if (!cleaned) return;
@@ -43,18 +53,26 @@ export default function SearchScreen() {
     addRecentSearch(cleaned);
     Keyboard.dismiss();
   };
-  
+
+  // Unique item names that match what's typed, e.g. "chicken breast, boneless".
   const suggestions = [
     ...new Set((suggestionsSearch.data ?? []).map((item) => item.name.toLowerCase())),
   ].slice(0, MAX_SUGGESTIONS);
 
+  // The sort decides which store each card shows (cheapest or closest), then the order.
   const results = (isSubmitted ? (resultsSearch.data ?? []) : [])
     .map((item) => {
-      const best = getBestPrice(item);
-      return best ? { item, best, unitPrice: getUnitPrice(item, best) } : null;
+      const shown = sortBy === 'distance' ? getNearestPrice(item) : getBestPrice(item);
+      return shown ? { item, shown, unitPrice: getUnitPrice(item, shown) } : null;
     })
-    .filter((r): r is NonNullable<typeof r> => r !== null);
+    .filter((r): r is NonNullable<typeof r> => r !== null)
+    .sort((a, b) =>
+      sortBy === 'distance'
+        ? a.shown.distanceMi - b.shown.distanceMi || a.unitPrice - b.unitPrice
+        : a.unitPrice - b.unitPrice,
+    );
 
+  // BEST goes to the lowest price per unit among the cards shown.
   const lowestUnitPrice = Math.min(...results.map((r) => r.unitPrice));
 
   const renderContent = () => {
@@ -105,13 +123,31 @@ export default function SearchScreen() {
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
-        renderItem={({ item: { item, best, unitPrice } }) => (
+        ListHeaderComponent={
+          <View style={styles.header}>
+            <Text style={typography.meta}>
+              {results.length} {results.length === 1 ? 'result' : 'results'} for “
+              {submittedQuery}”
+            </Text>
+            <View style={styles.chips}>
+              {SORT_OPTIONS.map((option) => (
+                <Chip
+                  key={option.value}
+                  label={option.label}
+                  selected={sortBy === option.value}
+                  onPress={() => setSortBy(option.value)}
+                />
+              ))}
+            </View>
+          </View>
+        }
+        renderItem={({ item: { item, shown, unitPrice } }) => (
           <ProductCard
             name={item.name}
             brandSize={`${item.brand} · ${formatSize(item.size, item.sizeUnit)}`}
-            price={best.price}
+            price={shown.price}
             unitPrice={formatUnitPrice(unitPrice, item.sizeUnit)}
-            store={`${best.store} · ${formatDistance(best.distanceMi)}`}
+            store={`${shown.store} · ${formatDistance(shown.distanceMi)}`}
             isBest={unitPrice === lowestUnitPrice}
           />
         )}
@@ -135,5 +171,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.lg,
   },
   message: { marginTop: spacing.md },
+  header: { gap: spacing.md, marginBottom: spacing.xs },
+  chips: { flexDirection: 'row', gap: spacing.sm },
   list: { gap: 10, paddingTop: spacing.lg, paddingBottom: spacing.xl },
 });
