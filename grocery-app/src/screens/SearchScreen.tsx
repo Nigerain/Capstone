@@ -10,7 +10,7 @@ import { SearchBar } from '../components/SearchBar';
 import { SearchSuggestions } from '../components/SearchSuggestions';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useSearchItems } from '../hooks/useSearchItems';
-import { useSearchStore } from '../store/useSearchStore';
+import { useSearchStore, useSearchStoreHydrated } from '../store/useSearchStore';
 import { colors, spacing, typography } from '../theme';
 import { formatDistance, formatSize, formatUnitPrice } from '../utils/format';
 import { getBestPrice, getNearestPrice, getUnitPrice } from '../utils/price';
@@ -26,6 +26,7 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
 
 export default function SearchScreen() {
   const navigation = useNavigation();
+  const hydrated = useSearchStoreHydrated();
 
   const [query, setQuery] = useState(''); // what's in the box right now
   const [submittedQuery, setSubmittedQuery] = useState(''); // the last thing actually searched
@@ -78,6 +79,7 @@ export default function SearchScreen() {
   const renderContent = () => {
     // 1. Empty box: recent searches, or helper text on first visit
     if (!hasQuery) {
+      if (!hydrated) return null; 
       return recentSearches.length > 0 ? (
         <RecentSearches
           searches={recentSearches}
