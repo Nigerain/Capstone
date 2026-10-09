@@ -78,3 +78,188 @@ query SearchStores($pattern: String!) @auth(level: NO_ACCESS) {
     storeLocation
   }
 }
+
+# grab the user's account age and number of price submissions for voter reputation.
+query GetUserStats($userId: String!) @auth(level: NO_ACCESS) {
+  user(
+    key: { id: $userId }
+  )
+
+  {
+    id
+    createdAt
+  }
+
+  totalSubmissions: priceRecords(
+    where: {
+      userId: { eq: $userId }
+    }
+  )
+
+  {
+    _count
+  }
+}
+
+# grab the user's previous submissions and their unweighted votes for submitter reputation.
+# use limit and offset to grab more history.
+query GetSubmitterVoteHistory(
+  $userId: String!
+  $limit: Int!
+  $offset: Int!
+) @auth(level: NO_ACCESS) {
+  priceHistory: _select(
+    sql: """
+      SELECT
+        pr.id AS "priceRecordId",
+        pr.date_recorded AS "dateRecorded",
+        COUNT(*) FILTER (WHERE pv.is_upvote = TRUE) AS "upvotes",
+        COUNT(*) FILTER (WHERE pv.is_upvote = FALSE) AS "downvotes"
+      FROM price_record pr
+      LEFT JOIN price_vote pv
+        ON pv.price_record_id = pr.id
+      WHERE pr.user_id = $1
+      GROUP BY pr.id, pr.date_recorded
+      ORDER BY pr.date_recorded DESC, pr.id DESC
+      LIMIT $2 OFFSET $3
+    """
+    params: [$userId, $limit, $offset]
+  )
+}
+
+# grab all the votes for a price to calculate the weighted consensus.
+# also grab the voter's account age and when they voted.
+query GetPriceVotes(
+  $priceRecordId: UUID!
+  $limit: Int!
+  $offset: Int!
+) @auth(level: NO_ACCESS) {
+  votes: _select(
+    sql: """
+      SELECT
+        pv.price_record_id AS "priceRecordId",
+        pv.user_id AS "userId",
+        pv.is_upvote AS "isUpvote",
+        pv.created_at AS "createdAt",
+        u.created_at AS "accountCreatedAt"
+      FROM price_vote pv
+      JOIN "user" u
+        ON u.id = pv.user_id
+      WHERE pv.price_record_id = $1
+      ORDER BY pv.created_at DESC, pv.user_id ASC
+      LIMIT $2 OFFSET $3
+    """
+    params: [$priceRecordId, $limit, $offset]
+  )
+}
+
+# grab the price information needed to calculate its final confidence.
+query GetPriceConfidenceData($priceRecordId: UUID!) @auth(level: NO_ACCESS) {
+  priceRecord(
+    id: $priceRecordId
+  )
+
+  {
+    id
+    price
+    dateRecorded
+    isPublic
+
+    user {
+      id
+      createdAt
+    }
+
+    item {
+      id
+      itemName
+    }
+
+    store {
+      id
+      storeName
+    }
+  }
+}
+
+# grab the price history of an item at a specific store.
+# only show prices that are public.
+query GetPriceHistory(
+  $itemId: UUID!
+  $storeId: UUID!
+  $limit: Int!
+  $offset: Int!
+) @auth(level: NO_ACCESS) {
+  priceRecords(
+    where: {
+      itemId: { eq: $itemId }
+      storeId: { eq: $storeId }
+      isPublic: { eq: true }
+    }
+    orderBy: [
+      { dateRecorded: DESC }
+      { id: DESC }
+    ]
+    limit: $limit
+    offset: $offset
+  )
+
+  {
+    id
+    price
+    dateRecorded
+
+    item {
+      id
+      itemName
+      brand
+      unitSize
+    }
+
+    store {
+      id
+      storeName
+      storeLocation
+    }
+  }
+}
+
+# grab all the prices submitted by a user.
+# let them see their previous submissions including private ones.
+query GetUserSubmissions(
+  $userId: String!
+  $limit: Int!
+  $offset: Int!
+) @auth(level: NO_ACCESS) {
+  priceRecords(
+    where: {
+      userId: { eq: $userId }
+    }
+    orderBy: [
+      { dateRecorded: DESC }
+      { id: DESC }
+    ]
+    limit: $limit
+    offset: $offset
+  )
+
+  {
+    id
+    price
+    dateRecorded
+    isPublic
+
+    item {
+      id
+      itemName
+      brand
+      unitSize
+    }
+
+    store {
+      id
+      storeName
+      storeLocation
+    }
+  }
+}

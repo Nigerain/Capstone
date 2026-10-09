@@ -1,4 +1,6 @@
-# create their account the database supplythem their uuid.
+
+# create their account after they sign up using Firebase Authentication.
+# the backend verifies their identity before creating their profile.
 mutation CreateUserProfile(
   $userId: String!
   $username: String!
@@ -17,7 +19,8 @@ mutation CreateUserProfile(
   )
 }
 
-# They save a price manually or using ocr
+# let users submit a price manually or using OCR.
+# the backend verifies the user before saving their price.
 mutation CreatePrice(
   $itemId: UUID!
   $storeId: UUID!
@@ -36,7 +39,7 @@ mutation CreatePrice(
   )
 }
 
-# verify they're logged in and authenicated before letting them make items. 
+# verify they're logged in and authenticated before letting them make items.
 mutation CreateItem(
   $itemName: String!
   $brand: String
@@ -51,7 +54,7 @@ mutation CreateItem(
   )
 }
 
-# verify they're logged in and authenicated before letting them make stores. 
+# verify they're logged in and authenticated before letting them make stores.
 mutation CreateStore(
   $storeName: String!
   $storeLocation: String
@@ -61,5 +64,52 @@ mutation CreateStore(
       storeName: $storeName
       storeLocation: $storeLocation
     }
+  )
+}
+
+# let users upvote or downvote a submitted price.
+# if they already voted, update their existing vote.
+# the backend verifies the user and prevents self-voting.
+mutation SubmitPriceVote(
+  $priceRecordId: UUID!
+  $userId: String!
+  $isUpvote: Boolean!
+) @auth(level: NO_ACCESS) {
+  _execute(
+    sql: """
+      INSERT INTO price_vote (
+        price_record_id,
+        user_id,
+        is_upvote,
+        created_at
+      )
+      SELECT $1, $2, $3, NOW()
+      WHERE EXISTS (
+        SELECT 1
+        FROM price_record
+        WHERE id = $1
+          AND user_id <> $2
+          AND is_public = TRUE
+      )
+      ON CONFLICT (price_record_id, user_id)
+      DO UPDATE SET is_upvote = EXCLUDED.is_upvote
+    """
+    params: [$priceRecordId, $userId, $isUpvote]
+  )
+}
+
+# let users remove their own vote from a submitted price.
+# the backend verifies that the vote belongs to the user.
+mutation RemovePriceVote(
+  $priceRecordId: UUID!
+  $userId: String!
+) @auth(level: NO_ACCESS) {
+  _execute(
+    sql: """
+      DELETE FROM price_vote
+      WHERE price_record_id = $1
+        AND user_id = $2
+    """
+    params: [$priceRecordId, $userId]
   )
 }

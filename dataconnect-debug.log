@@ -1,0 +1,54 @@
+I1009 17:40:51.131505   13520 load.go:31] Reloading schema and connectors...
+I1009 17:40:51.152253   13520 control.go:100] [projects/emulator/locations/emulator/services/grocerypricepal-service 0e48] UpdateResources(): done
+Main schema: sources: schema/schema.gql [1478B] 
+Connector "endpoint": sources: endpoint/queries.gql [4642B] endpoint/mutations.gql [2591B] 
+I1009 17:40:51.171358   13520 collector.go:107] schema extensions wrote into "/home/cs/Capstone/Capstone-layout/backend/dataconnect/.dataconnect/schema"
+Generated sources: main/input.gql [49879B] main/relation.gql [25281B] main/query.gql [8855B] main/mutation.gql [23888B] prelude.gql [84995B] main/implicit.gql [1797B] 
+I1009 17:40:51.171398   13520 load.go:109] Finished reloading
+I1009 17:40:51.171643   13520 dev.go:103] Listening on address (HTTP + gRPC): 127.0.0.1:9399
+I1009 17:40:51.171684   13520 dev.go:103] Listening on address (HTTP + gRPC): [::1]:9399
+I1009 17:40:54.892585   13520 control.go:100] [projects/emulator/locations/emulator/services/grocerypricepal-service e15c] UpdateResources(): done
+Main schema: sources: schema/schema.gql [1478B] 
+Connector "endpoint": sources: endpoint/mutations.gql [2591B] endpoint/queries.gql [4642B] 
+I1009 17:40:54.898719   13520 configure_emulator.go:21] ConfigureEmulator successed
+Request: service_id: "grocerypricepal-service"
+connection_string: "postgres://127.0.0.1:5432/grocerypricepal-database?sslmode=disable"
+database: "grocerypricepal-database"
+
+Response: 
+I1009 17:42:46.820386   13520 engine.go:218] [projects/emulator/locations/emulator/services/grocerypricepal-service e15c] ExecuteGraphql query SearchItems: invalid request. 
+Auth: admin
+Errors: [message:"$pattern (String) is missing" extensions:{code:INVALID_ARGUMENT}]
+sources: input [7235B] 
+I1009 17:43:43.853086   13520 execute.go:57] Database ping is quick (likely cached), took 729.85µs
+I1009 17:43:43.937298   13520 engine.go:216] [projects/emulator/locations/emulator/services/grocerypricepal-service e15c] ExecuteGraphql query SearchItems: succeeded. 
+I1009 17:44:09.181887   13520 engine.go:218] [projects/emulator/locations/emulator/services/grocerypricepal-service e15c] ExecuteGraphql query GetItemPrices: invalid request. 
+Auth: admin
+
+Variables Set: [pattern]
+Errors: [message:"$itemId (UUID) is missing" extensions:{code:INVALID_ARGUMENT} message:"$pattern is not expected (did you mean itemId?)" extensions:{code:INVALID_ARGUMENT}]
+sources: input [7235B] 
+I1009 17:44:33.417995   13520 engine.go:218] [projects/emulator/locations/emulator/services/grocerypricepal-service e15c] ExecuteGraphql query GetItemPrices: invalid request. 
+Auth: admin
+
+Variables Set: [pattern]
+Errors: [message:"$itemId (UUID) is missing" extensions:{code:INVALID_ARGUMENT} message:"$pattern is not expected (did you mean itemId?)" extensions:{code:INVALID_ARGUMENT}]
+sources: input [7235B] 
+I1009 17:44:34.814955   13520 execute.go:57] Database ping is quick (likely cached), took 549.913µs
+I1009 17:44:34.900709   13520 engine.go:216] [projects/emulator/locations/emulator/services/grocerypricepal-service e15c] ExecuteGraphql query GetItemPrices: succeeded. 
+I1009 17:45:18.079206   13520 engine.go:218] [projects/emulator/locations/emulator/services/grocerypricepal-service e15c] ExecuteGraphql query GetItemPrices: invalid request. 
+Auth: admin
+
+Variables Set: [pattern]
+Errors: [message:"$itemId (UUID) is missing" extensions:{code:INVALID_ARGUMENT} message:"$pattern is not expected (did you mean itemId?)" extensions:{code:INVALID_ARGUMENT}]
+sources: input [7235B] 
+I1009 17:45:31.835560   13520 engine.go:218] [projects/emulator/locations/emulator/services/grocerypricepal-service e15c] ExecuteGraphql query SearchItems: invalid request. 
+Auth: admin
+
+Variables Set: [itemId]
+Errors: [message:"$pattern (String) is missing" extensions:{code:INVALID_ARGUMENT} message:"$itemId is not expected (did you mean pattern?)" extensions:{code:INVALID_ARGUMENT}]
+sources: input [7235B] 
+I1009 17:45:39.691003   13520 execute.go:57] Database ping is quick (likely cached), took 532.841µs
+I1009 17:45:39.774152   13520 engine.go:216] [projects/emulator/locations/emulator/services/grocerypricepal-service e15c] ExecuteGraphql query SearchItems: succeeded. 
+I1009 17:45:45.689373   13520 execute.go:57] Database ping is quick (likely cached), took 523.112µs
+I1009 17:45:45.773119   13520 engine.go:216] [projects/emulator/locations/emulator/services/grocerypricepal-service e15c] ExecuteGraphql query SearchItems: succeeded. 
