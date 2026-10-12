@@ -1,50 +1,188 @@
-
 # create their account after they sign up using Firebase Authentication.
-# the backend verifies their identity before creating their profile.
+# uses firebase for authenticated ID and email.
 mutation CreateUserProfile(
-  $userId: String!
   $username: String!
   $firstName: String!
   $lastName: String!
-  $email: String!
-) @auth(level: NO_ACCESS) {
+) @auth(level: USER) {
   user_insert(
     data: {
-      id: $userId
+      id_expr: "auth.uid"
       username: $username
       firstName: $firstName
       lastName: $lastName
-      email: $email
+      email_expr: "auth.token.email"
     }
   )
 }
 
 # let users submit a price manually or using OCR.
-# the backend verifies the user before saving their price.
+# create a price pool or join the matching one.
 mutation CreatePrice(
   $itemId: UUID!
   $storeId: UUID!
-  $userId: String!
   $price: Float!
   $isPublic: Boolean!
-) @auth(level: NO_ACCESS) {
-  priceRecord_insert(
-    data: {
-      itemId: $itemId
-      storeId: $storeId
-      userId: $userId
-      price: $price
-      isPublic: $isPublic
-    }
+) @auth(level: USER) @transaction {
+  ...LockAccount
+
+  savedSubmission: _execute(
+    sql: """
+      WITH destination AS (
+        INSERT INTO price_record (
+          id, item_id, store_id, price,
+          date_recorded, is_public, pool_scope
+        )
+        SELECT
+          gen_random_uuid(), $1::uuid, $2::uuid,
+          ROUND($3::numeric, 2)::double precision,
+          CURRENT_DATE, $4::boolean,
+          CASE
+            WHEN $4::boolean THEN 'public'
+            ELSE 'private:' || $5::text
+          END
+        WHERE $3::numeric BETWEEN 0.01 AND 99999.99
+        ON CONFLICT (item_id, store_id, price, pool_scope)
+        DO UPDATE SET price = EXCLUDED.price
+        RETURNING id
+      )
+      INSERT INTO price_submission (
+        price_record_id, user_id, created_at, ended_at
+      )
+      SELECT d.id, $5, statement_timestamp(), NULL
+      FROM destination d
+      WHERE NOT EXISTS (
+        SELECT 1 FROM price_vote pv
+        WHERE pv.price_record_id = d.id
+          AND pv.user_id = $5
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM price_submission ps
+        WHERE ps.price_record_id = d.id
+          AND ps.user_id = $5
+          AND ps.ended_at IS NULL
+      )
+    """
+    params: [
+      $itemId
+      $storeId
+      $price
+      $isPublic
+      {_expr: "response.accountLock.id"}
+    ]
+  ) @check(
+    expr: "this == 1"
+    message: "Invalid price, already supporting this pool, or already voted on it."
   )
 }
+
+
+# let users update their own submitted price.
+# move their submission to an existing price pool or create a new one.
+# don't change the price for other users in the original pool.
+# move only the logged-in user's submission.
+# keep the old pool and its votes for everyone else.
+mutation UpdatePrice(
+  $priceRecordId: UUID!
+  $price: Float!
+) @auth(level: USER) @transaction {
+  ...LockAccount
+
+  updatedSubmission: _execute(
+    sql: """
+      /* find the user's active submission */
+      WITH original AS (
+        SELECT
+          ps.created_at,
+          pr.item_id,
+          pr.store_id,
+          pr.is_public,
+          pr.pool_scope
+        FROM price_submission ps
+        JOIN price_record pr ON pr.id = ps.price_record_id
+        WHERE ps.price_record_id = $1
+          AND ps.user_id = $2
+          AND ps.ended_at IS NULL
+          AND $3::numeric BETWEEN 0.01 AND 99999.99
+          AND pr.price <> ROUND($3::numeric, 2)::double precision
+        FOR UPDATE OF ps
+      ),
+
+      /* the unique constraint prevents duplicate pools */
+      destination AS (
+        INSERT INTO price_record (
+          id, item_id, store_id, price,
+          date_recorded, is_public, pool_scope
+        )
+        SELECT
+          gen_random_uuid(), o.item_id, o.store_id,
+          ROUND($3::numeric, 2)::double precision,
+          CURRENT_DATE, o.is_public, o.pool_scope
+        FROM original o
+        WHERE TRUE
+        ON CONFLICT (item_id, store_id, price, pool_scope)
+        DO UPDATE SET price = EXCLUDED.price
+        RETURNING id
+      ),
+
+      /* start a new participation period */
+      joined AS (
+        INSERT INTO price_submission (
+          price_record_id, user_id, created_at, ended_at
+        )
+        SELECT d.id, $2, statement_timestamp(), NULL
+        FROM destination d
+        WHERE NOT EXISTS (
+          SELECT 1 FROM price_vote pv
+          WHERE pv.price_record_id = d.id
+            AND pv.user_id = $2
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM price_submission ps
+          WHERE ps.price_record_id = d.id
+            AND ps.user_id = $2
+            AND ps.ended_at IS NULL
+        )
+        RETURNING price_record_id
+      )
+
+      /* close the old period only when the destination is supported */
+      UPDATE price_submission ps
+      SET ended_at = statement_timestamp()
+      FROM original o
+      WHERE ps.price_record_id = $1
+        AND ps.user_id = $2
+        AND ps.created_at = o.created_at
+        AND (
+          EXISTS (SELECT 1 FROM joined)
+          OR EXISTS (
+            SELECT 1
+            FROM destination d
+            JOIN price_submission existing
+              ON existing.price_record_id = d.id
+            WHERE existing.user_id = $2
+              AND existing.ended_at IS NULL
+          )
+        )
+    """
+    params: [
+      $priceRecordId
+      {_expr: "response.accountLock.id"}
+      $price
+    ]
+  ) @check(
+    expr: "this == 1"
+    message: "Cannot move this submission. Check ownership, price, and destination vote."
+  )
+}
+
 
 # verify they're logged in and authenticated before letting them make items.
 mutation CreateItem(
   $itemName: String!
   $brand: String
   $unitSize: String
-) @auth(level: NO_ACCESS) {
+) @auth(level: USER) {
   item_insert(
     data: {
       itemName: $itemName
@@ -58,7 +196,7 @@ mutation CreateItem(
 mutation CreateStore(
   $storeName: String!
   $storeLocation: String
-) @auth(level: NO_ACCESS) {
+) @auth(level: USER) {
   store_insert(
     data: {
       storeName: $storeName
@@ -69,47 +207,149 @@ mutation CreateStore(
 
 # let users upvote or downvote a submitted price.
 # if they already voted, update their existing vote.
-# the backend verifies the user and prevents self-voting.
+# prevent users from voting on their own prices.
 mutation SubmitPriceVote(
   $priceRecordId: UUID!
-  $userId: String!
   $isUpvote: Boolean!
-) @auth(level: NO_ACCESS) {
-  _execute(
+) @auth(level: USER) @transaction {
+  ...LockAccount
+
+  savedVote: _execute(
     sql: """
+      /* save the vote under the logged-in user's ID */
       INSERT INTO price_vote (
         price_record_id,
         user_id,
         is_upvote,
         created_at
       )
-      SELECT $1, $2, $3, NOW()
+      SELECT $1, $2, $3, statement_timestamp()
+
+      /* only allow voting on public prices with active submitters */
       WHERE EXISTS (
         SELECT 1
-        FROM price_record
-        WHERE id = $1
-          AND user_id <> $2
-          AND is_public = TRUE
+        FROM price_record pr
+        WHERE pr.id = $1
+          AND pr.is_public = TRUE
+          AND EXISTS (
+            SELECT 1
+            FROM price_submission ps
+            WHERE ps.price_record_id = pr.id
+              AND ps.ended_at IS NULL
+          )
       )
+
+      /* prevent users from voting on a price they submitted */
+      AND NOT EXISTS (
+        SELECT 1
+        FROM price_submission ps
+        WHERE ps.price_record_id = $1
+          AND ps.user_id = $2
+      )
+
+      /* change an existing vote instead of creating another */
       ON CONFLICT (price_record_id, user_id)
       DO UPDATE SET is_upvote = EXCLUDED.is_upvote
     """
-    params: [$priceRecordId, $userId, $isUpvote]
+    params: [
+      $priceRecordId
+      {_expr: "response.accountLock.id"}
+      $isUpvote
+    ]
+  ) @check(
+    expr: "this == 1"
+    message: "Cannot vote on a private, inactive, or previously supported pool."
   )
 }
 
+# let logged-in users join an existing shared price.
+# prevent duplicate submissions and joining a price they voted on.
+mutation JoinPrice(
+  $priceRecordId: UUID!
+) @auth(level: USER) @transaction {
+  ...LockAccount
+
+  joinedPrice: _execute(
+    sql: """
+      /* link the logged-in user to an existing public price */
+      INSERT INTO price_submission (
+        price_record_id,
+        user_id,
+        created_at,
+        ended_at
+      )
+      SELECT $1, $2, statement_timestamp(), NULL
+
+      /* only join public prices with active submitters */
+      WHERE EXISTS (
+        SELECT 1
+        FROM price_record pr
+        WHERE pr.id = $1
+          AND pr.is_public = TRUE
+          AND EXISTS (
+            SELECT 1
+            FROM price_submission ps
+            WHERE ps.price_record_id = pr.id
+              AND ps.ended_at IS NULL
+          )
+      )
+
+      /* don't let users join a price they already voted on */
+      AND NOT EXISTS (
+        SELECT 1
+        FROM price_vote pv
+        WHERE pv.price_record_id = $1
+          AND pv.user_id = $2
+      )
+
+      /* allow rejoining, but not duplicate active submissions */
+      AND NOT EXISTS (
+        SELECT 1
+        FROM price_submission ps
+        WHERE ps.price_record_id = $1
+          AND ps.user_id = $2
+          AND ps.ended_at IS NULL
+      )
+    """
+    params: [
+      $priceRecordId
+      {_expr: "response.accountLock.id"}
+    ]
+  ) @check(
+    expr: "this == 1"
+    message: "Cannot join a private or inactive pool, or one you support or voted on."
+  )
+}
+
+
 # let users remove their own vote from a submitted price.
-# the backend verifies that the vote belongs to the user.
+# Firebase uses their authenticated ID to find the vote.
 mutation RemovePriceVote(
   $priceRecordId: UUID!
-  $userId: String!
-) @auth(level: NO_ACCESS) {
+) @auth(level: USER) @transaction {
+  ...LockAccount
+
   _execute(
     sql: """
       DELETE FROM price_vote
       WHERE price_record_id = $1
         AND user_id = $2
     """
-    params: [$priceRecordId, $userId]
+    params: [
+      $priceRecordId
+      {_expr: "response.accountLock.id"}
+    ]
   )
+}
+
+# lock the account before checking submissions or votes.
+# the response dependency keeps later SQL in a separate step.
+fragment LockAccount on Mutation {
+  accountLock: user_update(
+    key: {id_expr: "auth.uid"}
+    data: {id_expr: "auth.uid"}
+  ) @check(
+    expr: "this != null"
+    message: "Create your user profile first."
+  ) @redact
 }

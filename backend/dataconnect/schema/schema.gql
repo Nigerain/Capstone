@@ -30,7 +30,7 @@ type ItemCategory @table(key: ["item", "category"]) {
   category: Category!
 }
 
-type PriceRecord @table {
+type PriceRecord @table @unique(fields: ["item", "store", "price", "poolScope"]) {
   id: UUID! @default(expr: "uuidV4()")
   price: Float!
   dateRecorded: Date! @default(expr: "request.time") @col(name: "date_recorded")
@@ -38,7 +38,14 @@ type PriceRecord @table {
   #evaluationStatus: String! @default(value: "PENDING") @col(name: "evaluation_status") for now it's commented because I'm not sure if we want it to display instantly or pend
   store: Store!
   item: Item!
+  poolScope: String! @col(name: "pool_scope")
+}
+
+type PriceSubmission @table(key: ["priceRecord", "user", "createdAt"]) {
+  priceRecord: PriceRecord!
   user: User!
+  createdAt: Timestamp! @default(expr: "request.time") @col(name: "created_at")
+  endedAt: Timestamp @col(name: "ended_at")
 }
 
 type PriceVote @table(key: ["priceRecord", "user"]) {
