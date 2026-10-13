@@ -70,8 +70,11 @@ UNIT_PRICE_LABEL = re.compile(
     r'UNIT PRICE|PRICE\s*/\s*LB|\bPER[\s-]+(?:LB|OZ|QT|DOZEN|EA|\d+\s*COUNT)\b', re.IGNORECASE
 )
 # [ \t]* instead of \s* so a price on one line and a letter on the next
-# ("4.49\nG") is not read as a weight.
-WEIGHT_PATTERN = re.compile(r'\d+(?:\.\d+)?[ \t]*(?:oz|lbs?|g|kg|ml|l|gal|ct|dz|pk)\b', re.IGNORECASE)
+# ("4.49\nG") is not read as a weight. The optional "fl" lets "64 fl oz"
+# match — without it, the number and unit aren't adjacent so the whole
+# compound unit is invisible to this pattern. "count" is spelled out on
+# digital shelf tags ("18 count"), not just abbreviated to "ct".
+WEIGHT_PATTERN = re.compile(r'\d+(?:\.\d+)?[ \t]*(?:fl[ \t.]*)?(?:oz|lbs?|g|kg|ml|l|gal|ct|count|dz|pk)\b', re.IGNORECASE)
 NUTRITION_WORDS = re.compile(
     r'fat|protein|sugar|carb|fiber|sodium|cholest|serving|calories|potas|iron|calcium|vitamin',
     re.IGNORECASE,
@@ -79,16 +82,26 @@ NUTRITION_WORDS = re.compile(
 # A container-size line ("(1/2 GAL) 1.89", "96 FL OZ (2.8L)") , the volume
 # number sometimes lands on its own line without the unit attached.
 CONTAINER_SIZE_LINE = re.compile(r'\bGAL\b|\bFL\s*OZ\b', re.IGNORECASE)
-NAME_LINE_PATTERN = re.compile(r"^[A-Z][A-Z\s'\-]{4,}$")
-# Regulatory/instructional boilerplate printed in the same all-caps style
-# as a product name, so NAME_LINE_PATTERN matches it too. Meat/poultry tags
-# are full of this.
+# Each word just needs to start with a capital letter — the rest can be
+# upper or lower case, so this covers both all-caps physical labels
+# ("CHICKEN BREAST") and Title Case digital shelf tags ("Large White
+# Eggs"). The optional leading group lets a line start with a percentage
+# ("0% Fat Free Milk"). The length lookahead keeps a stray single letter
+# or 2-char fragment ("A", "Oz") from counting as a name-shaped line, while
+# still allowing short real fragments ("Oat", "Milk") that get joined with
+# neighboring lines by _best_name_group().
+NAME_LINE_PATTERN = re.compile(r"^(?=.{3,}$)(?:\d+%\s+)?(?:[A-Z][A-Za-z'\-]*\s*)+$")
+# Regulatory/instructional boilerplate, and shelf-tag promo chrome, printed
+# in the same name-shaped style NAME_LINE_PATTERN matches. Meat/poultry
+# labels are full of the former; Lidl digital tags are full of the latter.
 NOISE_LINE_PATTERN = re.compile(
     r'DEPARTMENT OF|AGRICULTURE|FEDERAL REGULATIONS|SERVING SUGGESTION|'
     r'KEEP REFRIGERAT|SELL BY|BEST BY|BEST IF USED|USE WITHIN|PRODUCT OF|'
     r'DISTRIBUTED BY|MEAT DEPT|INSPECTED|USDA|NEEDS TO BE|COOK TO|'
     r'THERMOMETER|HORMONES|STEROIDS|ANTIBIOTICS|HATCHED|HARVESTED|'
-    r'VERIFIED|PROCESSED|INGREDIENTS|LEARN MORE|SHAKE WELL|GLUTEN FREE',
+    r'VERIFIED|PROCESSED|INGREDIENTS|LEARN MORE|SHAKE WELL|GLUTEN FREE|'
+    r'NEW LOW PRICE|REGULAR PRICE|WITH LIDL PLUS|BUY MORE|SAVE MORE|'
+    r'PER UNIT|PER QT|^LIMIT \d+$',
     re.IGNORECASE,
 )
 # A single quality/claim word with nothing else on the line. Real names pair
@@ -108,17 +121,17 @@ KNOWN_BRANDS = [
     "lidl preferred selection", "preferred selection", "lidl",
     "good & gather", "dave's killer bread", "wonder bread", "wonder",
     "alouette", "eggland's best", "lactaid", "perdue", "tyson",
-    "hy-vee", "target", "butcher's specialty",
+    "hy-vee", "target", "butcher's specialty", "allen harim",
 ]
 BRAND_PATTERN = re.compile(
     r'\b(' + '|'.join(re.escape(b) for b in KNOWN_BRANDS) + r')\b', re.IGNORECASE
 )
 # extract_item_name() picks the longest consecutive run of name-shaped
 # lines, which is also exactly how unrelated OCR noise gets joined into one
-# long fake name on garbled photos. Real product names rarely run past 5
-# words ("Boneless Skinless Chicken Breasts"), so a longer run is more
-# likely a noise join than a real one.
-MAX_PLAUSIBLE_NAME_WORDS = 5
+# long fake name on garbled photos. Egg/poultry names routinely run to 7
+# words ("Free Range Large Brown Grade A Eggs"), so the cap needs to clear
+# those; a longer run than that is more likely a noise join than a real name.
+MAX_PLAUSIBLE_NAME_WORDS = 7
 
 
 def preprocess_for_tesseract(image_path):
@@ -336,7 +349,13 @@ def build_row(filename, engine, text):
         "name_candidates": " | ".join(extract_name_candidates(text)),
         "raw_text": text.replace("\n", " | "),
         "correct": "",
-        "notes": ""
+        "notes": "",
+        "name_correct": "",
+        "name_match": "",
+        "brand_correct": "",
+        "brand_match": "",
+        "size_correct": "",
+        "size_match": "",
     }
 
 
@@ -355,18 +374,59 @@ def scan_price_tag(image_path, client=None):
     }
 
 
+GROUND_TRUTH_FIELDS = ["correct", "notes", "name_correct", "brand_correct", "size_correct"]
+
+
 def load_existing_ground_truth(path):
     """Keyed by image filename so a re-run doesn't erase hand-verified
-    correct/notes values — engine-specific OCR output gets regenerated,
-    but the ground truth you checked against the photos shouldn't have to be
+    ground truth — engine-specific OCR output gets regenerated, but the
+    ground truth you checked against the photos shouldn't have to be
     retyped every time the script runs."""
     ground_truth = {}
     if os.path.exists(path):
         with open(path, newline="") as f:
             for row in csv.DictReader(f):
-                if row.get("correct") or row.get("notes"):
-                    ground_truth[row["image"]] = (row["correct"], row["notes"])
+                values = {field: row.get(field, "") for field in GROUND_TRUTH_FIELDS}
+                if any(values.values()):
+                    ground_truth[row["image"]] = values
     return ground_truth
+
+
+def _normalized_match(guess, correct):
+    """Case/whitespace-insensitive comparison for name/brand/size ground
+    truth — the OCR guess keeps the tag's original casing/spacing (e.g.
+    all-caps names, "4.53lb" with no space) while ground truth is typed in
+    natural, readable form, so a literal string compare would mark correct
+    guesses wrong over formatting alone."""
+    if not correct:
+        return ""
+    normalize = lambda s: re.sub(r"\s+", "", s or "").upper()
+    return "Y" if normalize(guess) == normalize(correct) else "N"
+
+
+# Ground truth is typed out in full words ("1 gallon", "12 count"); the
+# extractor keeps whatever abbreviation the tag itself used ("1 GAL",
+# "12CT"). Both are the same value, so grading needs to treat them as
+# equal instead of penalizing the extractor for correct-but-abbreviated
+# output.
+_SIZE_UNIT_SYNONYMS = [
+    ("GALLONS", "GAL"), ("GALLON", "GAL"),
+    ("POUNDS", "LB"), ("POUND", "LB"),
+    ("OUNCES", "OZ"), ("OUNCE", "OZ"),
+    ("COUNT", "CT"),
+]
+
+
+def _normalized_size_match(guess, correct):
+    if not correct:
+        return ""
+    def normalize(s):
+        s = re.sub(r"\s+", "", s or "").upper()
+        for long_form, short_form in _SIZE_UNIT_SYNONYMS:
+            if s.endswith(long_form):
+                s = s[: -len(long_form)] + short_form
+        return s
+    return "Y" if normalize(guess) == normalize(correct) else "N"
 
 
 def main():
@@ -386,12 +446,18 @@ def main():
 
         tess_row = build_row(filename, "tesseract", tess_text)
         vision_row = build_row(filename, "vision", vision_text)
-        correct, notes = ground_truth.get(filename, ("", ""))
+        truth = ground_truth.get(filename, {field: "" for field in GROUND_TRUTH_FIELDS})
         for row in (tess_row, vision_row):
-            row["correct"] = correct
-            row["notes"] = notes
-            # "" when there's no ground truth yet (not graded), not a miss.
-            row["match"] = "" if not correct else ("Y" if row["final_price_guess"] == correct else "N")
+            row["correct"] = truth["correct"]
+            row["notes"] = truth["notes"]
+            row["name_correct"] = truth["name_correct"]
+            row["brand_correct"] = truth["brand_correct"]
+            row["size_correct"] = truth["size_correct"]
+            # "" when there's no ground truth yet (not graded/ambiguous), not a miss.
+            row["match"] = "" if not truth["correct"] else ("Y" if row["final_price_guess"] == truth["correct"] else "N")
+            row["name_match"] = _normalized_match(row["item_name_guess"], truth["name_correct"])
+            row["brand_match"] = _normalized_match(row["brand_guess"], truth["brand_correct"])
+            row["size_match"] = _normalized_size_match(row["unit_size_guess"], truth["size_correct"])
         rows += [tess_row, vision_row]
 
         print(f"{filename} — tesseract: {tess_row['final_price_guess'] or 'nothing'} | "
@@ -400,7 +466,7 @@ def main():
     # correct/match/notes come right after the guess so a reader sees "was it
     # right" before anything else; raw_text (the long, sometimes-garbled OCR
     # dump used to debug why) is last so it doesn't have to be scrolled past.
-    fieldnames = ["image", "engine", "final_price_guess", "correct", "match", "price_source", "all_prices", "item_name_guess", "item_name_suppressed", "brand_guess", "unit_size_guess", "weight_unit_guess", "name_candidates", "notes", "raw_text"]
+    fieldnames = ["image", "engine", "final_price_guess", "correct", "match", "price_source", "all_prices", "item_name_guess", "name_correct", "name_match", "item_name_suppressed", "brand_guess", "brand_correct", "brand_match", "unit_size_guess", "size_correct", "size_match", "weight_unit_guess", "name_candidates", "notes", "raw_text"]
     with open(results_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
