@@ -151,6 +151,7 @@ export default function SearchScreen() {
             unitPrice={formatUnitPrice(unitPrice, item.sizeUnit)}
             store={`${shown.store} · ${formatDistance(shown.distanceMi)}`}
             isBest={unitPrice === lowestUnitPrice}
+            onPress={() => navigation.navigate('ProductDetail', { itemId: item.id })}
           />
         )}
       />

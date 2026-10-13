@@ -103,3 +103,8 @@ export async function searchItems(query: string): Promise<Item[]> {
     return words.every((word) => text.includes(word));
   });
 }
+
+export async function getItemById(id: string): Promise<Item | null> {
+  await new Promise((resolve) => setTimeout(resolve, MOCK_DELAY));
+  return MOCK_ITEMS.find((item) => item.id === id) ?? null;
+}

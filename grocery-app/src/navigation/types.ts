@@ -10,6 +10,7 @@ export type TabParamList = {
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabParamList>;
   AddPrice: undefined;
+  ProductDetail: { itemId: string };
 };
 
 // Lets useNavigation() know every screen name without extra typing.
@@ -20,3 +21,4 @@ declare global {
     interface RootParamList extends RootStackParamList {}
   }
 }
+

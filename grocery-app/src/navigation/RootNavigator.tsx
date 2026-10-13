@@ -1,5 +1,5 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-
+import { ProductDetailScreen } from '../screens/ProductDetailScreen'; 
 import { AddPriceScreen } from '../screens/AddPriceScreen';
 import { colors } from '../theme';
 import { TabNavigator } from './TabNavigator';
@@ -13,6 +13,7 @@ export function RootNavigator() {
       screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}
     >
       <Stack.Screen name="Tabs" component={TabNavigator} />
+      <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
       <Stack.Screen name="AddPrice" component={AddPriceScreen} options={{ presentation: 'modal' }} />
     </Stack.Navigator>
   );
