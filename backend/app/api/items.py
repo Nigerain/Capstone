@@ -24,13 +24,15 @@ def search_items(q: str = Query(...,min_length=1)):
                 "id": "item_001",
                 "itemName": "Chicken Breast",
                 "brand": "Perdue",
-                "unitSize": "1 lb",
+                "unitAmount": 1,
+                "unit": "LB",
             },
             {
                 "id": "item_002",
                 "itemName": "Chicken Wings",
                 "brand": "Tyson",
-                "unitSize":'1 lb'
+                "unitAmount": 1,
+                "unit": "LB",
             },
         ]
     }

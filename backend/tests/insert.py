@@ -1,4 +1,6 @@
 import json
+import math
+import sys
 from pathlib import Path
 
 import google.auth
@@ -10,7 +12,29 @@ mutation_file = backend / "dataconnect/endpoint/mutations.gql"
 
 item_name = input("Item name: ").strip()
 brand = input("Brand (optional): ").strip()
-unit_size = input("Unit size (optional, e.g. 1 lb): ").strip()
+sys.path.insert(0, str(backend))
+from app.schemas.item import GroceryUnit
+
+amount_text = input("Unit amount (optional, e.g. 1.5): ").strip()
+unit_amount = None
+unit = None
+if amount_text:
+    try:
+        unit_amount = float(amount_text)
+    except ValueError:
+        raise SystemExit("Unit amount must be a positive number.")
+    if not math.isfinite(unit_amount) or unit_amount <= 0:
+        raise SystemExit("Unit amount must be a finite positive number.")
+    units = list(GroceryUnit)
+    for index, choice in enumerate(units, start=1):
+        print(f"{index}. {choice.value}")
+    try:
+        selection = int(input("Select unit number: ").strip())
+    except ValueError:
+        raise SystemExit("Select a unit by its number.")
+    if not 1 <= selection <= len(units):
+        raise SystemExit("Invalid unit selection.")
+    unit = units[selection - 1].value
 
 if not item_name:
     raise SystemExit("Item name is required.")
@@ -35,7 +59,8 @@ with AuthorizedSession(credentials) as session:
             "variables": {
                 "itemName": item_name,
                 "brand": brand or None,
-                "unitSize": unit_size or None,
+                "unitAmount": unit_amount,
+                "unit": unit,
             },
         },
         timeout=30,
