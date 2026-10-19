@@ -1,6 +1,7 @@
 import os
 import re
 import csv
+import unicodedata
 import cv2
 import io
 import pytesseract
@@ -15,11 +16,6 @@ pillow_heif.register_heif_opener()
 
 
 def get_vision_client():
-    """Lazily builds the Vision client so importing this module never
-    requires credentials — only calling this does. Google's client library
-    reads GOOGLE_APPLICATION_CREDENTIALS itself; we just check it up front
-    so a missing/bad path fails with a clear message instead of a library
-    stack trace deep inside an API call."""
     cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     if not cred_path or not os.path.isfile(cred_path):
         raise RuntimeError(
@@ -28,15 +24,13 @@ def get_vision_client():
             "key, e.g.:\n"
             "  export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your-key.json\n"
             "See .env.example for the expected format. Ask a teammate for "
-            "the key file if you don't have one — it is not stored in the repo."
+            "the key file if you don't have one. It is not stored in the repo."
         )
     return vision.ImageAnnotatorClient()
 
 
-# A price like 4.19 or $4.19. Skips SKU-style codes ("3-4-5.099") and numbers
-# followed by a unit ("3.78 L", "18.200Z", "4.53 LB"), which are sizes/weights.
-# The decimal point is sometimes misread as a comma ("$1,33") , accepted here
-# and normalized back to a period wherever this pattern is used.
+# price like 4.19 or $4.19; skips SKU codes and size/weight numbers (3.78 L, 4.53 LB)
+# comma allowed as decimal (OCR misread), normalized to period elsewhere
 PRICE_PATTERN = re.compile(
     r'(?<!-)\$?\d{1,3}[.,]\d{2}(?!\d*\s*(?:[o0]z|lbs?|l|ml|g|kg)\b)',
     re.IGNORECASE,
@@ -45,15 +39,9 @@ PRICE_PATTERN = re.compile(
 DOLLAR_NO_DECIMAL_PATTERN = re.compile(r'\$(\d{1,2})(\d{2})\b')
 # Bakery/produce tags often print cents-only prices: "69¢", "68¢".
 CENTS_PATTERN = re.compile(r'(\d{1,3})\s*¢')
-# A "sell by"/"best by" date like 09.22.26 or 09.22 uses the same dot-decimal
-# shape as a price. Real prices never have a second dot, so this is safe to
-# strip before price extraction runs.
+# dates (09.22.26) look like prices; stripped before price extraction runs
 DATE_PATTERN = re.compile(r'\b\d{1,2}\.\d{1,2}\.\d{2,4}\b')
-# Labels that sit next to the price the shopper actually pays. The "RE.{0,3}L"
-# tolerates OCR misreads of RETAIL such as "REAL PRICE". TOTAL and PRICE
-# sometimes land on separate lines with a stray "$" between them
-# ("TOTAL $ | PRICE | 15.81"), so this is matched against a multi-line window,
-# not a single line — see extract_final_price.
+# labels next to the price the shopper pays, e.g. "REAL PRICE" (an OCR misread of RETAIL)
 FINAL_PRICE_LABELS = re.compile(
     r'YOU PAY|SALE PRICE|RE\w{0,3}L PRICE|TOTAL\s*\$?\s*PRICE', re.IGNORECASE
 )
@@ -62,18 +50,13 @@ SAVE_LABEL = re.compile(r'\bSAVE\b', re.IGNORECASE)
 # A per-unit label that sits alone on its own line, with the value on the
 # next line ("UNIT PRICE" / "4.55" / "PER LB").
 STANDALONE_UNIT_LABEL = re.compile(r'^\s*(?:UNIT PRICE|PRICE\s*/\s*LB)\s*$', re.IGNORECASE)
-# A per-unit suffix printed on the same line as its price ("$3.50 per lb",
-# "$2.99 per 12 count", or "$1.98-per-qt." OCR sometimes renders the space
-# as a hyphen). Excluded only when it shares the price's own line,  an
-# unrelated "per lb" one line away should not disqualify a real price.
+# per-unit suffix on the price's own line only ("$3.50 per lb");
+# a "per lb" elsewhere shouldn't disqualify a real price
 UNIT_PRICE_LABEL = re.compile(
     r'UNIT PRICE|PRICE\s*/\s*LB|\bPER[\s-]+(?:LB|OZ|QT|DOZEN|EA|\d+\s*COUNT)\b', re.IGNORECASE
 )
-# [ \t]* instead of \s* so a price on one line and a letter on the next
-# ("4.49\nG") is not read as a weight. The optional "fl" lets "64 fl oz"
-# match — without it, the number and unit aren't adjacent so the whole
-# compound unit is invisible to this pattern. "count" is spelled out on
-# digital shelf tags ("18 count"), not just abbreviated to "ct".
+# [ \t]* not \s*, so "4.49\nG" isn't read as a weight
+# "fl" catches "64 fl oz"; "count" is spelled out on digital shelf tags, not just "ct"
 WEIGHT_PATTERN = re.compile(r'\d+(?:\.\d+)?[ \t]*(?:fl[ \t.]*)?(?:oz|lbs?|g|kg|ml|l|gal|ct|count|dz|pk)\b', re.IGNORECASE)
 NUTRITION_WORDS = re.compile(
     r'fat|protein|sugar|carb|fiber|sodium|cholest|serving|calories|potas|iron|calcium|vitamin',
@@ -82,18 +65,10 @@ NUTRITION_WORDS = re.compile(
 # A container-size line ("(1/2 GAL) 1.89", "96 FL OZ (2.8L)") , the volume
 # number sometimes lands on its own line without the unit attached.
 CONTAINER_SIZE_LINE = re.compile(r'\bGAL\b|\bFL\s*OZ\b', re.IGNORECASE)
-# Each word just needs to start with a capital letter — the rest can be
-# upper or lower case, so this covers both all-caps physical labels
-# ("CHICKEN BREAST") and Title Case digital shelf tags ("Large White
-# Eggs"). The optional leading group lets a line start with a percentage
-# ("0% Fat Free Milk"). The length lookahead keeps a stray single letter
-# or 2-char fragment ("A", "Oz") from counting as a name-shaped line, while
-# still allowing short real fragments ("Oat", "Milk") that get joined with
-# neighboring lines by _best_name_group().
-NAME_LINE_PATTERN = re.compile(r"^(?=.{3,}$)(?:\d+%\s+)?(?:[A-Z][A-Za-z'\-]*\s*)+$")
-# Regulatory/instructional boilerplate, and shelf-tag promo chrome, printed
-# in the same name-shaped style NAME_LINE_PATTERN matches. Meat/poultry
-# labels are full of the former; Lidl digital tags are full of the latter.
+# matches ALL-CAPS and Title Case name-shaped lines, including accents ("Crème")
+# possessive quantifiers (*+) prevent ReDoS, don't remove them
+NAME_LINE_PATTERN = re.compile(r"^(?=.{3,}$)(?:\d+%\s++)?(?:[A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'\-]*+\s*+)+$")
+# regulatory text and shelf-tag promo text (e.g. "New Low Price"), excluded since both are name-shaped too
 NOISE_LINE_PATTERN = re.compile(
     r'DEPARTMENT OF|AGRICULTURE|FEDERAL REGULATIONS|SERVING SUGGESTION|'
     r'KEEP REFRIGERAT|SELL BY|BEST BY|BEST IF USED|USE WITHIN|PRODUCT OF|'
@@ -104,19 +79,13 @@ NOISE_LINE_PATTERN = re.compile(
     r'PER UNIT|PER QT|^LIMIT \d+$',
     re.IGNORECASE,
 )
-# A single quality/claim word with nothing else on the line. Real names pair
-# these with a noun ("Organic Bananas"), but the OCR often prints the
-# modifier on its own line — alone, it's not useful as a product name.
+# bare modifier word alone on a line ("Organic"), not useful without a noun
 GENERIC_MODIFIER_ONLY = re.compile(
     r"^(?:ORGANIC|CERTIFIED|HUMANE|KOSHER|NATURAL|FRESH|PASTURE RAISED|"
     r"CAGE FREE|GRADE [A-Z]|NON[\s-]?GMO)$",
     re.IGNORECASE,
 )
-# Store/private-label brands seen on the test tags. A lookup instead of a
-# structural rule, a brand name often gets printed 3-4 times in different
-# fonts/sizes on one tag (see the ALOUETTE cheese tag), so there's no
-# reliable "the brand is always line N" pattern to key off of the way there
-# is for price labels. Add to this list as new brands show up in testing.
+# lookup, not a positional rule; brand position varies by tag. Add new ones as seen.
 KNOWN_BRANDS = [
     "lidl preferred selection", "preferred selection", "lidl",
     "good & gather", "dave's killer bread", "wonder bread", "wonder",
@@ -126,20 +95,13 @@ KNOWN_BRANDS = [
 BRAND_PATTERN = re.compile(
     r'\b(' + '|'.join(re.escape(b) for b in KNOWN_BRANDS) + r')\b', re.IGNORECASE
 )
-# extract_item_name() picks the longest consecutive run of name-shaped
-# lines, which is also exactly how unrelated OCR noise gets joined into one
-# long fake name on garbled photos. Egg/poultry names routinely run to 7
-# words ("Free Range Large Brown Grade A Eggs"), so the cap needs to clear
-# those; a longer run than that is more likely a noise join than a real name.
+# caps the longest-run heuristic so garbled OCR doesn't join into a fake name
+# egg/poultry names run to 7 words ("Free Range Large Brown Grade A Eggs")
 MAX_PLAUSIBLE_NAME_WORDS = 7
 
 
 def preprocess_for_tesseract(image_path):
-    # Grayscale only, no thresholding. Swept 7
-    # preprocessing methods x 5 psm modes against 28 ground-truthed images;
-    # this plain grayscale step beat every thresholding variant, including
-    # the adaptive-threshold version this function used before (14/28 vs
-    # 7/28 at psm 11, and it's what psm 12's 15/28 best result runs on).
+    # grayscale only; beat all thresholding variants in a 7x5 grid search (see ocr_grid_search.py)
     img = Image.open(image_path).convert("RGB")
     img_np = np.array(img)
     img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
@@ -149,7 +111,7 @@ def preprocess_for_tesseract(image_path):
 
 def run_tesseract(image_path):
     processed = preprocess_for_tesseract(image_path)
-    config = "--psm 12"  # winner of the grid search, see preprocess_for_tesseract
+    config = "--psm 12"
     return pytesseract.image_to_string(processed, config=config)
 
 def load_image_as_jpeg_bytes(image_path):
@@ -180,20 +142,13 @@ def extract_final_price(text):
     text = DATE_PATTERN.sub(" ", text)
     lines = text.split("\n")
 
-    # 1. A price next to a "you pay" style label. The label itself may be
-    #    split across a line break ("TOTAL $" / "PRICE"), so it's searched for
-    #    in a 3-line window, not one line at a time. Once found, look right
-    #    after the label, then the next 2 lines, then the line above (meat
-    #    labels print the total above "TOTAL PRICE"). When a line has several
-    #    prices, take the last one: shelf tags print UNIT PRICE and RETAIL
-    #    PRICE side by side.
+    # 1. price next to a "you pay" label. Label may split across lines, so
+    #    search a 3-line window, then check after label, next 2 lines, then
+    #    line above. Take the last price if several (unit + retail side by side).
     for i in range(len(lines)):
         window = " ".join(lines[i:i + 3])
         label = FINAL_PRICE_LABELS.search(window)
-        # Require the label to actually start on line i, not one the window
-        # only pulled in to look ahead, otherwise a label 2 lines below i
-        # is found first, and the "line above the label" lookback below ends
-        # up one line above i instead of one line above the real label.
+        # label must start on line i, not just appear in the lookahead window
         if not label or label.start() > len(lines[i]):
             continue
         nearby = [window[label.end():]] + lines[i + 3:i + 5] + lines[max(i - 1, 0):i]
@@ -202,17 +157,9 @@ def extract_final_price(text):
             if prices:
                 return prices[-1].lstrip("$"), f"label: {label.group().upper()}"
 
-    # 2. No label found. Exclude two kinds of non-final numbers:
-    #    - a per-unit price: either sharing its own line with a suffix like
-    #      "per lb" / "per 12 count", or sitting alone on the line right
-    #      after a standalone "UNIT PRICE" label (cheese tags print
-    #      "UNIT PRICE" / "4.55" / "PER LB" as three separate lines).
-    #    - a markdown amount next to "SAVE" ("SAVE $1.94", "SAVE" / "40¢").
-    #    - a Nutrition Facts value ("Total Fat 2.50") or a container-size
-    #      line ("(1/2 GAL) 1.89") — both use the same decimal shape.
-    #    Excluding by line, not by a window of nearby lines, matters: a
-    #    "per qt" reference price one line above the real price must not
-    #    disqualify that real price too.
+    # 2. no label: exclude per-unit prices, SAVE markdowns, and nutrition/
+    #    container-size numbers. Excluded by line, not nearby lines, so one
+    #    bad line doesn't disqualify a real price next to it.
     excluded = set()
     for i, line in enumerate(lines):
         if (STANDALONE_UNIT_LABEL.match(line) or (SAVE_LABEL.search(line) and not extract_prices(line))):
@@ -243,10 +190,7 @@ def extract_weight(text):
 
 
 def _strip_trailing_codes(line):
-    """SKU/PLU/grade codes ("CHICKEN BREAST P 935 L6") often share a line
-    with the product name. Strip trailing short digit-containing or
-    single-letter tokens before matching, so a code at the end of the line
-    doesn't reject an otherwise valid name."""
+    # strips trailing SKU/PLU codes ("CHICKEN BREAST P 935 L6" -> "CHICKEN BREAST")
     tokens = line.split()
     while tokens and (re.match(r'^[A-Z]?\d+[A-Z]?\d*$', tokens[-1]) or re.match(r'^[A-Z]$', tokens[-1])):
         tokens.pop()
@@ -254,9 +198,7 @@ def _strip_trailing_codes(line):
 
 
 def _name_candidate_line(line):
-    """Cleaned version of a line if it's shaped like a product name, else
-    None. Shared by extract_name_candidates() and extract_item_name() so
-    they can never disagree on which lines qualify."""
+    # cleaned line if name-shaped, else None; shared so both callers below agree
     stripped = _strip_trailing_codes(line.strip())
     if not NAME_LINE_PATTERN.match(stripped):
         return None
@@ -269,20 +211,13 @@ def _name_candidate_line(line):
 
 
 def extract_name_candidates(text):
-    """Every line that's shaped like a product name, after excluding lines
-    that are actually price labels, weights, dates, or regulatory noise
-    printed in the same all-caps style. This is the full list, kept for
-    debugging in the CSV; extract_item_name() below picks the actual guess."""
+    # full list of name-shaped lines, kept for debugging in the CSV (extract_item_name picks the real guess)
     return [c for c in (_name_candidate_line(line) for line in text.split("\n")) if c]
 
 
 def _best_name_group(text):
-    """Longest consecutive run of name-shaped lines, before
-    extract_item_name() below decides whether it's trustworthy enough to
-    return. Tags often split the name across 2-3 consecutive lines
-    ("CAGE FREE" / "LARGE BROWN" / "EGGS"), so this joins consecutive
-    name-shaped lines into one candidate instead of trusting any single
-    line."""
+    # joins consecutive name-shaped lines into one candidate; tags often
+    # split the name across lines ("CAGE FREE" / "LARGE BROWN" / "EGGS")
     lines = text.split("\n")
     groups, current = [], []
     for line in lines:
@@ -300,11 +235,7 @@ def _best_name_group(text):
 
 
 def extract_item_name(text):
-    """Best-effort single product name, or None when nothing confident was
-    found. A group longer than MAX_PLAUSIBLE_NAME_WORDS is suppressed
-    rather than returned, since it's more likely an OCR noise join than a
-    real name (see MAX_PLAUSIBLE_NAME_WORDS) — the caller should treat a
-    None here the same as "ask the user to type it in", not retry."""
+    # None means low confidence, not "retry"; caller should ask the user to type it in
     best = _best_name_group(text)
     if best is None or len(best.split()) > MAX_PLAUSIBLE_NAME_WORDS:
         return None
@@ -312,18 +243,13 @@ def extract_item_name(text):
 
 
 def extract_brand(text):
-    """None (not a guess) when no known brand is found — brand is optional
-    in the schema, and guessing wrong here is worse than leaving it blank
-    for the user to fill in."""
+    # None (not a guess) when no known brand matches; wrong is worse than blank
     match = BRAND_PATTERN.search(text)
     return match.group(1).title() if match else None
 
 
 def extract_unit_size(text):
-    """Single cleaned value for the schema's unitSize field, vs.
-    extract_weight()'s full list — tags often print the same size twice
-    (e.g. once near the name, once in the barcode block), so the first
-    match is as good a guess as any later duplicate."""
+    # first match from extract_weight(); tags often print the size twice, later ones are just duplicates
     weights = extract_weight(text)
     return weights[0] if weights else None
 
@@ -339,9 +265,6 @@ def build_row(filename, engine, text):
         "price_source": price_source,
         "all_prices": ", ".join(extract_prices(text)),
         "item_name_guess": item_name or "",
-        # non-empty only when extract_item_name() suppressed a guess for
-        # being too long — lets you judge whether MAX_PLAUSIBLE_NAME_WORDS
-        # is cutting off real names, not just noise.
         "item_name_suppressed": raw_name if (raw_name and not item_name) else "",
         "brand_guess": extract_brand(text) or "",
         "unit_size_guess": extract_unit_size(text) or "",
@@ -360,8 +283,8 @@ def build_row(filename, engine, text):
 
 
 def scan_price_tag(image_path, client=None):
-    """Entry point for one photo — what a backend endpoint calls. main()
-    below only batch-tests this against the 38 ground-truthed photos."""
+    """Entry point for one photo - what a backend endpoint calls. main()
+    below only batch-tests this against the 38 photos."""
     if client is None:
         client = get_vision_client()
     text = run_vision(client, image_path)
@@ -378,10 +301,7 @@ GROUND_TRUTH_FIELDS = ["correct", "notes", "name_correct", "brand_correct", "siz
 
 
 def load_existing_ground_truth(path):
-    """Keyed by image filename so a re-run doesn't erase hand-verified
-    ground truth — engine-specific OCR output gets regenerated, but the
-    ground truth you checked against the photos shouldn't have to be
-    retyped every time the script runs."""
+    # keyed by filename so a rerun doesn't erase verified ground truth
     ground_truth = {}
     if os.path.exists(path):
         with open(path, newline="") as f:
@@ -392,23 +312,20 @@ def load_existing_ground_truth(path):
     return ground_truth
 
 
+def _strip_accents(s):
+    # "Crème" -> "Creme", for comparison only, not the extractor's output
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+
+
 def _normalized_match(guess, correct):
-    """Case/whitespace-insensitive comparison for name/brand/size ground
-    truth — the OCR guess keeps the tag's original casing/spacing (e.g.
-    all-caps names, "4.53lb" with no space) while ground truth is typed in
-    natural, readable form, so a literal string compare would mark correct
-    guesses wrong over formatting alone."""
+    # case/whitespace/accent-insensitive compare
     if not correct:
         return ""
-    normalize = lambda s: re.sub(r"\s+", "", s or "").upper()
+    normalize = lambda s: re.sub(r"\s+", "", _strip_accents(s or "")).upper()
     return "Y" if normalize(guess) == normalize(correct) else "N"
 
 
-# Ground truth is typed out in full words ("1 gallon", "12 count"); the
-# extractor keeps whatever abbreviation the tag itself used ("1 GAL",
-# "12CT"). Both are the same value, so grading needs to treat them as
-# equal instead of penalizing the extractor for correct-but-abbreviated
-# output.
+# ground truth uses full words ("gallon"), extractor keeps tag abbreviations ("GAL"), same value
 _SIZE_UNIT_SYNONYMS = [
     ("GALLONS", "GAL"), ("GALLON", "GAL"),
     ("POUNDS", "LB"), ("POUND", "LB"),
@@ -453,7 +370,6 @@ def main():
             row["name_correct"] = truth["name_correct"]
             row["brand_correct"] = truth["brand_correct"]
             row["size_correct"] = truth["size_correct"]
-            # "" when there's no ground truth yet (not graded/ambiguous), not a miss.
             row["match"] = "" if not truth["correct"] else ("Y" if row["final_price_guess"] == truth["correct"] else "N")
             row["name_match"] = _normalized_match(row["item_name_guess"], truth["name_correct"])
             row["brand_match"] = _normalized_match(row["brand_guess"], truth["brand_correct"])
@@ -463,9 +379,6 @@ def main():
         print(f"{filename} — tesseract: {tess_row['final_price_guess'] or 'nothing'} | "
               f"vision: {vision_row['final_price_guess'] or 'nothing'} ({vision_row['price_source']})")
 
-    # correct/match/notes come right after the guess so a reader sees "was it
-    # right" before anything else; raw_text (the long, sometimes-garbled OCR
-    # dump used to debug why) is last so it doesn't have to be scrolled past.
     fieldnames = ["image", "engine", "final_price_guess", "correct", "match", "price_source", "all_prices", "item_name_guess", "name_correct", "name_match", "item_name_suppressed", "brand_guess", "brand_correct", "brand_match", "unit_size_guess", "size_correct", "size_match", "weight_unit_guess", "name_candidates", "notes", "raw_text"]
     with open(results_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
