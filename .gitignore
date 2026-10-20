@@ -51,4 +51,11 @@ yarn-error.*
 
 # Operating system files
 .DS_Store
-Thumbs.db
+
+# Firebase Credentials
+firebase-service-account.json
+backend/firebase-service-account.json
+
+#Environment variables
+.env
+.env.*

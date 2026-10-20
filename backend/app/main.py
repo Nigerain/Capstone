@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api import items,auth, prices, ocr
+from app.api import items,auth, prices, ocr, stores, users
 from app import firebase
 
 app = FastAPI(
@@ -25,6 +25,15 @@ app.include_router(
     ocr.router,
     prefix="/api/v1"
 )
+app.include_router(
+    stores.router,
+    prefix="/api/v1"
+)
+app.include_router(
+    users.router,
+    prefix="/api/v1"
+)
+
 
 @app.get("/health")
 def health_check():
