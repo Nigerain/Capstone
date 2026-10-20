@@ -65,7 +65,8 @@ def get_item_prices(
 class ItemCreate(BaseModel):
     itemName: str
     brand: Optional[str] = None
-    unitSize: Optional[str] = None
+    unitAmount: Optional[float] = None
+    unit: Optional[str] = None
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -83,7 +84,8 @@ def create_item(
         result = db_create_item(
             item_name=item.itemName,
             brand=item.brand,
-            unit_size=item.unitSize,
+            unit_amount=item.unitAmount,
+            unit=item.unit,
             id_token=credentials.credentials,
         )
         return result

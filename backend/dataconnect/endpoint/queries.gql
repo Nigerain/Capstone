@@ -17,7 +17,8 @@ query SearchItems($pattern: String!) @auth(level: USER) {
     id
     itemName
     brand
-    unitSize
+    unitAmount
+    unit
   }
 }
 
@@ -34,7 +35,8 @@ query GetItemPrices($itemId: UUID!) @auth(level: USER) {
           'id', i.id,
           'itemName', i.item_name,
           'brand', i.brand,
-          'unitSize', i.unit_size
+          'unitAmount', i.unit_amount,
+          'unit', i.unit
         ) AS "item",
         jsonb_build_object(
           'id', s.id,
@@ -256,7 +258,8 @@ query GetPriceHistory(
       id
       itemName
       brand
-      unitSize
+      unitAmount
+      unit
     }
 
     store {

@@ -18,11 +18,32 @@ type Category @table {
   categoryName: String! @col(name: "category_name")
 }
 
+# Weight, US customary volume, metric volume, and grocery count units.
+# OZ is weight; FL_OZ is volume. QT means US liquid quart.
+enum GroceryUnit {
+  LB
+  OZ
+  G
+  KG
+  ML
+  L
+  FL_OZ
+  PT
+  QT
+  GAL
+  EACH
+  DOZEN
+  SERVING
+  PACK
+  LOAF
+}
+
 type Item @table {
   id: UUID! @default(expr: "uuidV4()")
   itemName: String! @col(name: "item_name")
   brand: String
-  unitSize: String @col(name: "unit_size")
+  unitAmount: Float @col(name: "unit_amount")
+  unit: GroceryUnit
 }
 
 type ItemCategory @table(key: ["item", "category"]) {

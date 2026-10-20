@@ -181,13 +181,15 @@ mutation UpdatePrice(
 mutation CreateItem(
   $itemName: String!
   $brand: String
-  $unitSize: String
+  $unitAmount: Float
+  $unit: GroceryUnit
 ) @auth(level: USER) {
   item_insert(
     data: {
       itemName: $itemName
       brand: $brand
-      unitSize: $unitSize
+      unitAmount: $unitAmount
+      unit: $unit
     }
   )
 }

@@ -1,4 +1,5 @@
 import requests
+from typing import Optional
 
 
 class DataConnectError(Exception):
@@ -126,7 +127,13 @@ def create_price(
 
 
 # Create item
-def create_item(item_name: str, brand: str, unit_size: str, id_token: str):
+def create_item(
+    item_name: str,
+    brand: Optional[str],
+    unit_amount: Optional[float],
+    unit: Optional[str],
+    id_token: str,
+):
     response = requests.post(
         DATA_CONNECT_URL.replace(":executeQuery", ":executeMutation"),
         headers={
@@ -138,7 +145,8 @@ def create_item(item_name: str, brand: str, unit_size: str, id_token: str):
             "variables": {
                 "itemName": item_name,
                 "brand": brand,
-                "unitSize": unit_size,
+                "unitAmount": unit_amount,
+                "unit": unit,
             },
         },
         timeout=15,
