@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, radius, spacing, typography } from '../theme';
 import type { Item } from '../types/price';
-import { formatDistance, formatPrice, formatSize } from '../utils/format';
+import { formatBrandSize, formatDistance, formatPrice } from '../utils/format';
 
 type Props = {
   visible: boolean;
@@ -48,7 +48,7 @@ export function ComparePricesSheet({ visible, item, onClose }: Props) {
             </Pressable>
           </View>
           <Text style={typography.meta}>
-            {item.name} · {item.brand} · {formatSize(item.size, item.sizeUnit)}
+            {item.name} · {formatBrandSize(item)}
           </Text>
           <Text style={[typography.small, styles.sortNote]}>Sorted by lowest price</Text>
 
@@ -62,7 +62,9 @@ export function ComparePricesSheet({ visible, item, onClose }: Props) {
                   </View>
                   <View style={styles.storeInfo}>
                     <Text style={typography.cardTitle}>{price.store}</Text>
-                    <Text style={typography.small}>{formatDistance(price.distanceMi)}</Text>
+                    {price.distanceMi != null && (
+                      <Text style={typography.small}>{formatDistance(price.distanceMi)}</Text>
+                    )}
                   </View>
                   <View style={styles.priceColumn}>
                     {isBest && (

@@ -1,3 +1,4 @@
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
 import { useState } from 'react';
 import { FlatList, Keyboard, StyleSheet, Text, View } from 'react-native';
@@ -12,8 +13,8 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useSearchItems } from '../hooks/useSearchItems';
 import { useSearchStore, useSearchStoreHydrated } from '../store/useSearchStore';
 import { colors, spacing, typography } from '../theme';
-import { formatDistance, formatSize, formatUnitPrice } from '../utils/format';
-import { getBestPrice, getNearestPrice, getUnitPrice } from '../utils/price';
+import { formatBrandSize, formatItemUnitPrice, formatStoreLine } from '../utils/format';
+import { distanceForSorting, getBestPrice, getNearestPrice, getUnitPrice } from '../utils/price';
 
 const MAX_SUGGESTIONS = 5;
 
@@ -27,6 +28,7 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
 export default function SearchScreen() {
   const navigation = useNavigation();
   const hydrated = useSearchStoreHydrated();
+  const tabBarHeight = useBottomTabBarHeight();
 
   const [query, setQuery] = useState(''); // what's in the box right now
   const [submittedQuery, setSubmittedQuery] = useState(''); // the last thing actually searched
@@ -61,20 +63,32 @@ export default function SearchScreen() {
   ].slice(0, MAX_SUGGESTIONS);
 
   // The sort decides which store each card shows (cheapest or closest), then the order.
-  const results = (isSubmitted ? (resultsSearch.data ?? []) : [])
-    .map((item) => {
-      const shown = sortBy === 'distance' ? getNearestPrice(item) : getBestPrice(item);
-      return shown ? { item, shown, unitPrice: getUnitPrice(item, shown) } : null;
-    })
-    .filter((r): r is NonNullable<typeof r> => r !== null)
-    .sort((a, b) =>
-      sortBy === 'distance'
-        ? a.shown.distanceMi - b.shown.distanceMi || a.unitPrice - b.unitPrice
-        : a.unitPrice - b.unitPrice,
+    // "Nearest" only makes sense when stores have distances.
+    const hasDistances = (resultsSearch.data ?? []).some((item) =>
+      item.prices.some((p) => p.distanceMi != null),
     );
+    const activeSort: SortOption = hasDistances ? sortBy : 'unitPrice';
+  
+    // The sort decides which store each card shows (cheapest or closest), then the order.
+    const results = (isSubmitted ? (resultsSearch.data ?? []) : [])
+      .map((item) => {
+        const shown = activeSort === 'distance' ? getNearestPrice(item) : getBestPrice(item);
+        if (!shown) return null;
+        const unitPrice = getUnitPrice(item, shown);
+        // Compare by price per unit when the size is known, otherwise by sticker price.
+        return { item, shown, compareValue: unitPrice ?? shown.price };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null)
+      .sort((a, b) =>
+        activeSort === 'distance'
+          ? distanceForSorting(a.shown) - distanceForSorting(b.shown) || a.compareValue - b.compareValue
+          : a.compareValue - b.compareValue,
+      );
+  
+    const lowestValue = Math.min(...results.map((r) => r.compareValue));
 
   // BEST goes to the lowest price per unit among the cards shown.
-  const lowestUnitPrice = Math.min(...results.map((r) => r.unitPrice));
+  const lowestUnitPrice = Math.min(...results.map((r) => r.compareValue));
 
   const renderContent = () => {
     // 1. Empty box: recent searches, or helper text on first visit
@@ -122,7 +136,11 @@ export default function SearchScreen() {
       <FlatList
         data={results}
         keyExtractor={(r) => r.item.id}
-        contentContainerStyle={styles.list}
+        // Extra bottom space so the last result isn't hidden behind the tab bar.
+        contentContainerStyle={[
+          styles.list,
+          { paddingBottom: tabBarHeight + spacing.xl },
+        ]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         ListHeaderComponent={
@@ -132,25 +150,27 @@ export default function SearchScreen() {
               {submittedQuery}”
             </Text>
             <View style={styles.chips}>
-              {SORT_OPTIONS.map((option) => (
-                <Chip
-                  key={option.value}
-                  label={option.label}
-                  selected={sortBy === option.value}
-                  onPress={() => setSortBy(option.value)}
-                />
-              ))}
+            {SORT_OPTIONS.filter((option) => option.value !== 'distance' || hasDistances).map(
+                (option) => (
+                  <Chip
+                    key={option.value}
+                    label={option.label}
+                    selected={activeSort === option.value}
+                    onPress={() => setSortBy(option.value)}
+                  />
+                ),
+              )}
             </View>
           </View>
         }
-        renderItem={({ item: { item, shown, unitPrice } }) => (
+        renderItem={({ item: { item, shown, compareValue } }) => (
           <ProductCard
             name={item.name}
-            brandSize={`${item.brand} · ${formatSize(item.size, item.sizeUnit)}`}
+            brandSize={formatBrandSize(item)}
             price={shown.price}
-            unitPrice={formatUnitPrice(unitPrice, item.sizeUnit)}
-            store={`${shown.store} · ${formatDistance(shown.distanceMi)}`}
-            isBest={unitPrice === lowestUnitPrice}
+            unitPrice={formatItemUnitPrice(item, shown) ?? undefined}
+            store={formatStoreLine(shown)}
+            isBest={compareValue === lowestValue}
             onPress={() => navigation.navigate('ProductDetail', { itemId: item.id })}
           />
         )}
@@ -176,5 +196,5 @@ const styles = StyleSheet.create({
   message: { marginTop: spacing.md },
   header: { gap: spacing.md, marginBottom: spacing.xs },
   chips: { flexDirection: 'row', gap: spacing.sm },
-  list: { gap: 10, paddingTop: spacing.lg, paddingBottom: spacing.xl },
+  list: { gap: 10, paddingTop: spacing.lg },
 });

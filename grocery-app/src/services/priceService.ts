@@ -1,4 +1,11 @@
-import type { Category, Item, Price, SizeUnit } from '../types/price';
+import type {
+  Category,
+  Item,
+  Price,
+  PriceDrop,
+  SizeUnit,
+} from '../types/price';
+import { distanceForSorting } from '../utils/price';
 
 const MOCK_DELAY = 500;
 
@@ -107,4 +114,34 @@ export async function searchItems(query: string): Promise<Item[]> {
 export async function getItemById(id: string): Promise<Item | null> {
   await new Promise((resolve) => setTimeout(resolve, MOCK_DELAY));
   return MOCK_ITEMS.find((item) => item.id === id) ?? null;
+}
+
+// Mock price history: [item id, store, what it cost before].
+// TODO: replace with the backend's price-drops endpoint once it exists.
+type PreviousPriceSeed = [itemId: string, store: string, previousPrice: number];
+
+const MOCK_PREVIOUS_PRICES: PreviousPriceSeed[] = [
+  ['7', 'Key Food', 6.01], // Whole Milk  $6.01 → $5.29
+  ['9', 'ShopRite', 7.05], // Basmati Rice $7.05 → $6.49
+  ['1', 'Key Food', 5.89], // Chicken Breast $5.89 → $5.29
+  ['8', 'ShopRite', 5.39], // Large Eggs $5.39 → $4.99
+];
+
+// Biggest drop first; if two drops tie, the closer store wins.
+export async function getPriceDrops(): Promise<PriceDrop[]> {
+  await new Promise((resolve) => setTimeout(resolve, MOCK_DELAY));
+
+  return MOCK_PREVIOUS_PRICES.flatMap(([itemId, store, previousPrice]) => {
+    const item = MOCK_ITEMS.find((i) => i.id === itemId);
+    const price = item?.prices.find((p) => p.store === store);
+    if (!item || !price || price.price >= previousPrice) return [];
+
+    const dropPercent = Math.round(
+      ((previousPrice - price.price) / previousPrice) * 100
+    );
+    return [{ item, price, previousPrice, dropPercent }];
+  }).sort(
+    (a, b) =>
+      b.dropPercent - a.dropPercent || distanceForSorting(a.price) - distanceForSorting(b.price)
+  );
 }

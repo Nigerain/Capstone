@@ -8,8 +8,9 @@ import { ComparePricesSheet } from '../components/ComparePricesSheet';
 import { useItem } from '../hooks/useItem';
 import type { RootStackParamList } from '../navigation/types';
 import { colors, fonts, radius, spacing, typography } from '../theme';
-import { formatDistance, formatPrice, formatSize, formatUnitPrice } from '../utils/format';
-import { getBestPrice, getUnitPrice } from '../utils/price';
+import { formatBrandSize, formatItemUnitPrice, formatPrice, formatSize, formatStoreLine } from '../utils/format';
+import { getBestPrice } from '../utils/price';
+
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ProductDetail'>;
 
@@ -28,6 +29,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
     if (isError || !item) {
       return <Text style={[typography.meta, styles.status]}>We couldn't find this product.</Text>;
     }
+    const sizeLabel = formatSize(item.size, item.sizeUnit);
 
     return (
       <ScrollView contentContainerStyle={styles.content}>
@@ -42,7 +44,7 @@ export function ProductDetailScreen({ route, navigation }: Props) {
         <View>
           <Text style={typography.heading}>{item.name}</Text>
           <Text style={[typography.meta, styles.brandSize]}>
-            {item.brand} · {formatSize(item.size, item.sizeUnit)}
+            {item.brand} · {formatBrandSize(item)}
           </Text>
         </View>
 
@@ -54,11 +56,11 @@ export function ProductDetailScreen({ route, navigation }: Props) {
             <View style={styles.bestPriceRow}>
               <Text style={styles.bestPrice}>{formatPrice(best.price)}</Text>
               <Text style={typography.small}>
-                {formatUnitPrice(getUnitPrice(item, best), item.sizeUnit)}
+              {formatItemUnitPrice(item, best)}
               </Text>
             </View>
             <Text style={typography.meta}>
-              {best.store} · {formatDistance(best.distanceMi)}
+            {formatStoreLine(best)}
             </Text>
           </View>
         ) : (
@@ -79,11 +81,11 @@ export function ProductDetailScreen({ route, navigation }: Props) {
           </Pressable>
         )}
 
-        <View>
+        <View>  
           <Text style={styles.sectionTitle}>Details</Text>
-          <DetailRow label="Category" value={item.category} />
-          <DetailRow label="Brand" value={item.brand} />
-          <DetailRow label="Size" value={formatSize(item.size, item.sizeUnit)} isLast />
+          {item.category && <DetailRow label="Category" value={item.category} />}
+          <DetailRow label="Brand" value={item.brand} isLast={!sizeLabel} />
+          {sizeLabel && <DetailRow label="Size" value={sizeLabel} isLast />}
         </View>
       </ScrollView>
     );
