@@ -1,11 +1,7 @@
-import { Feather } from '@expo/vector-icons';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -17,17 +13,24 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  AuthButton,
+  BackButton,
+  EMAIL_PATTERN,
+  GoogleButton,
+  OrDivider,
+  PasswordToggle,
+} from '../components/AuthParts';
 import { FormField } from '../components/FormField';
 import type { RootStackParamList } from '../navigation/types';
 import { AuthError, signUp, type SignUpInput } from '../services/auth';
 import { useAuthStore } from '../store/useAuthStore';
-import { colors, fonts, radius, spacing, typography } from '../theme';
+import { colors, fonts, spacing, typography } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Signup'>;
 
 // Built from the Figma frame "Signup Screen".
 const CONTENT_WIDTH = 312;
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD = 8;
 
 export function SignupScreen({ navigation }: Props) {
@@ -73,12 +76,6 @@ export function SignupScreen({ navigation }: Props) {
     }
   });
 
-  const showComingSoon = () =>
-    Alert.alert(
-      'Coming soon',
-      'Google sign-in isn’t set up yet. Use your email for now.'
-    );
-
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
@@ -86,18 +83,7 @@ export function SignupScreen({ navigation }: Props) {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.topBar}>
-          <Pressable
-            onPress={() => navigation.goBack()}
-            accessibilityRole="button"
-            accessibilityLabel="Go back"
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.backButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Feather name="chevron-left" size={24} color={colors.text} />
-          </Pressable>
+          <BackButton onPress={() => navigation.goBack()} />
         </View>
 
         <ScrollView
@@ -227,20 +213,10 @@ export function SignupScreen({ navigation }: Props) {
                     returnKeyType="done"
                     onSubmitEditing={onSubmit}
                     right={
-                      <Pressable
-                        onPress={() => setShowPassword((shown) => !shown)}
-                        hitSlop={10}
-                        accessibilityRole="button"
-                        accessibilityLabel={
-                          showPassword ? 'Hide password' : 'Show password'
-                        }
-                      >
-                        <Feather
-                          name={showPassword ? 'eye-off' : 'eye'}
-                          size={19}
-                          color={colors.placeholder}
-                        />
-                      </Pressable>
+                      <PasswordToggle
+                        shown={showPassword}
+                        onToggle={() => setShowPassword((shown) => !shown)}
+                      />
                     }
                   />
                 )}
@@ -259,58 +235,23 @@ export function SignupScreen({ navigation }: Props) {
               </Text>
             ) : null}
 
-            <Pressable
+            <AuthButton
+              label="Create Account"
+              busyLabel="Creating account"
+              busy={isSubmitting}
               onPress={onSubmit}
-              disabled={isSubmitting}
-              accessibilityRole="button"
-              accessibilityState={{
-                busy: isSubmitting,
-                disabled: isSubmitting,
-              }}
-              style={({ pressed }) => [
-                styles.primaryButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              {isSubmitting ? (
-                <ActivityIndicator
-                  color={colors.onDark}
-                  accessibilityLabel="Creating account"
-                />
-              ) : (
-                <Text style={styles.primaryText}>Create Account</Text>
-              )}
-            </Pressable>
+              style={styles.primaryButton}
+            />
 
-            <View
-              style={styles.divider}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-            >
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or</Text>
-              <View style={styles.dividerLine} />
-            </View>
+            <OrDivider style={styles.divider} />
 
-            <Pressable
-              onPress={showComingSoon}
-              accessibilityRole="button"
-              style={({ pressed }) => [
-                styles.googleButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Image
-                source={require('../../assets/google.png')}
-                style={styles.googleIcon}
-                accessibilityIgnoresInvertColors
-              />
-              <Text style={styles.googleText}>Continue with Google</Text>
-            </Pressable>
+            <GoogleButton />
           </View>
 
           <Pressable
-            onPress={() => navigation.navigate('Login')}
+            // replace, not navigate: switching between Sign up and Log in
+            // shouldn't pile screens onto the back stack.
+            onPress={() => navigation.replace('Login')}
             hitSlop={8}
             accessibilityRole="link"
             style={styles.loginLink}
@@ -330,15 +271,6 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   flex: { flex: 1 },
   topBar: { paddingHorizontal: spacing.gutter, paddingVertical: spacing.sm },
-  backButton: {
-    width: 47,
-    height: 47,
-    borderRadius: 24,
-    backgroundColor: colors.card,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pressed: { opacity: 0.7 },
   // flexGrow lets the "Log in" link sit at the bottom on tall phones.
   scroll: {
     flexGrow: 1,
@@ -376,42 +308,8 @@ const styles = StyleSheet.create({
     color: colors.error,
     textAlign: 'center',
   },
-  primaryButton: {
-    marginTop: 9,
-    height: 44,
-    borderRadius: radius.round,
-    backgroundColor: colors.dark,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  primaryText: {
-    fontFamily: fonts.bodyBold,
-    fontSize: 15,
-    color: colors.field,
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginVertical: spacing.sm,
-  },
-  dividerLine: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: '#B5ACAC',
-  },
-  dividerText: { fontFamily: fonts.body, fontSize: 12, color: '#B5ACAC' },
-  googleButton: {
-    height: 44,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    borderRadius: radius.round,
-    backgroundColor: '#FDFAFA',
-  },
-  googleIcon: { width: 18, height: 18 },
-  googleText: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.text },
+  primaryButton: { marginTop: 9 },
+  divider: { marginVertical: spacing.sm },
   loginLink: { marginTop: 'auto', paddingTop: spacing.xl, alignSelf: 'center' },
   loginText: {
     fontFamily: fonts.body,

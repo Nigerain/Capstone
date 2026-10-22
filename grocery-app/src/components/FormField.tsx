@@ -5,7 +5,10 @@ import {
   Text,
   TextInput,
   View,
+  type StyleProp,
   type TextInputProps,
+  type TextStyle,
+  type ViewStyle,
 } from 'react-native';
 
 import { colors, fonts, spacing, typography } from '../theme';
@@ -18,16 +21,21 @@ type Props = TextInputProps & {
   icon: ComponentProps<typeof Feather>['name'];
   error?: string;
   right?: ReactNode;
+  // Per-screen tweaks: Login's fields are white and 47 tall, Signup's off-white and 51.
+  fieldStyle?: StyleProp<ViewStyle>;
+  labelStyle?: StyleProp<TextStyle>;
 };
 
 export const FormField = forwardRef<TextInput, Props>(function FormField(
-  { label, icon, error, right, style, ...inputProps },
+  { label, icon, error, right, fieldStyle, labelStyle, style, ...inputProps },
   ref
 ) {
   return (
     <View style={styles.group}>
-      <Text style={typography.label}>{label}</Text>
-      <View style={[styles.field, error ? styles.fieldError : null]}>
+      <Text style={[typography.label, labelStyle]}>{label}</Text>
+      <View
+        style={[styles.field, fieldStyle, error ? styles.fieldError : null]}
+      >
         <Feather name={icon} size={19} color={colors.placeholder} />
         <TextInput
           ref={ref}

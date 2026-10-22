@@ -58,3 +58,39 @@ export async function signUp(input: SignUpInput): Promise<AuthUser> {
     'Sign up isn’t connected to Firebase yet. Use mock mode for now.'
   );
 }
+
+export type LogInInput = {
+  email: string;
+  password: string;
+};
+
+// "Jordan" from "jordan.smith@email.com", for the mock greeting.
+function nameFromEmail(email: string) {
+  const first = email.split('@')[0].split(/[._-]/)[0] || 'there';
+  return first.charAt(0).toUpperCase() + first.slice(1);
+}
+
+export async function logIn(input: LogInInput): Promise<AuthUser> {
+  if (USE_MOCK_DATA) {
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    // Lets you test the error: log in with wrong@example.com.
+    if (input.email.toLowerCase() === 'wrong@example.com') {
+      // Same message for a bad email or a bad password, so the app never
+      // reveals which emails have accounts.
+      throw new AuthError('Incorrect email or password.');
+    }
+    return {
+      uid: `mock-${Date.now()}`,
+      firstName: nameFromEmail(input.email),
+      lastName: '',
+      email: input.email,
+    };
+  }
+
+  // TODO(firebase): signInWithEmailAndPassword. Map auth/invalid-credential
+  // (and auth/user-not-found, auth/wrong-password) to 'Incorrect email or password.'
+  // and auth/too-many-requests to a "try again later" message.
+  throw new AuthError(
+    'Log in isn’t connected to Firebase yet. Use mock mode for now.'
+  );
+}
