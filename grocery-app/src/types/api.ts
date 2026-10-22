@@ -16,6 +16,11 @@ export interface ApiStore {
     unitAmount?: number | null; // Dixon's: 1
     unit?: string | null; //                "LB"
   }
+
+  // GET /api/v1/items/search?q=... wraps the list in "results"
+  export interface ApiItemSearchResponse {
+    results: ApiItem[];
+  }
   
   // One entry in GET price history
   export interface ApiPriceEntry {
