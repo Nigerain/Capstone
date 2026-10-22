@@ -17,15 +17,19 @@ export const colors = {
   dark: '#1F1E1E', // Submit / Add a Price buttons
   darkButton: '#1D1919', // center + button
   onDark: '#FFFFFF',
+  placeholder: '#817979', // form input placeholders
+  error: '#B3261E', // form validation messages (not in Figma yet)
 } as const;
 
 export const fonts = {
   heading: 'Fraunces_700Bold',
+  headingRegular: 'Fraunces_400Regular', // signup subtitle, terms line
   semibold: 'WorkSans_600SemiBold',
   medium: 'WorkSans_500Medium',
   regular: 'WorkSans_400Regular',
   body: 'Inter_400Regular',
-  bodySemibold: 'Inter_600SemiBold', // large dark buttons ("Add a Price")
+  bodySemibold: 'Inter_600SemiBold', // large dark buttons ("Add a Price"), input text
+  bodyBold: 'Inter_700Bold', // auth buttons, "Log in"
   badge: 'Unna_700Bold',
 } as const;
 

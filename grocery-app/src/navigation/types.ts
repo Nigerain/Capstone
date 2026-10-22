@@ -11,6 +11,8 @@ export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabParamList>;
   AddPrice: undefined;
   ProductDetail: { itemId: string };
+  Signup: undefined;
+  Login: undefined;
 };
 
 // Lets useNavigation() know every screen name without extra typing.
