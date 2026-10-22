@@ -10,7 +10,27 @@ type Props = {
 };
 
 export function SearchSuggestions({ query, suggestions, onSelect }: Props) {
-  if (suggestions.length === 0) return null;
+  // Nothing matches yet (or still loading): offer to search exactly what was typed,
+  // so the panel never goes blank under the search bar.
+  if (suggestions.length === 0) {
+    if (!query) return null;
+    return (
+      <View style={styles.panel}>
+        <Pressable
+          onPress={() => onSelect(query)}
+          accessibilityRole="button"
+          accessibilityLabel={`Search for ${query}`}
+          style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+        >
+          <Feather name="search" size={18} color={colors.text} />
+          <Text style={styles.text} numberOfLines={1}>
+            <Text style={styles.typed}>Search for </Text>
+            <Text style={styles.bold}>“{query}”</Text>
+          </Text>
+        </Pressable>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.panel}>

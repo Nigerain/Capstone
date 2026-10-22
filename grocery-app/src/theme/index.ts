@@ -25,6 +25,7 @@ export const fonts = {
   medium: 'WorkSans_500Medium',
   regular: 'WorkSans_400Regular',
   body: 'Inter_400Regular',
+  bodySemibold: 'Inter_600SemiBold', // large dark buttons ("Add a Price")
   badge: 'Unna_700Bold',
 } as const;
 

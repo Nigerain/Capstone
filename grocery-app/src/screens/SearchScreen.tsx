@@ -9,8 +9,11 @@ import { ProductCard } from '../components/ProductCard';
 import { RecentSearches } from '../components/RecentSearches';
 import { SearchBar } from '../components/SearchBar';
 import { SearchSuggestions } from '../components/SearchSuggestions';
+import { SearchResultsSkeleton } from '../components/Skeleton';
+import { StateMessage } from '../components/StateMessage';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useSearchItems } from '../hooks/useSearchItems';
+import { isNetworkError } from '../services/api';
 import { useSearchStore, useSearchStoreHydrated } from '../store/useSearchStore';
 import { colors, spacing, typography } from '../theme';
 import { formatBrandSize, formatItemUnitPrice, formatStoreLine } from '../utils/format';
@@ -62,33 +65,34 @@ export default function SearchScreen() {
     ...new Set((suggestionsSearch.data ?? []).map((item) => item.name.toLowerCase())),
   ].slice(0, MAX_SUGGESTIONS);
 
+  // keepPreviousData keeps the last search's results on screen while a new one loads.
+  // Those belong to a different query, so treat them as "still loading", not as results.
+  const isLoadingResults = resultsSearch.isPending || resultsSearch.isPlaceholderData;
+
+  // "Nearest" only makes sense when stores have distances.
+  const hasDistances = (resultsSearch.data ?? []).some((item) =>
+    item.prices.some((p) => p.distanceMi != null),
+  );
+  const activeSort: SortOption = hasDistances ? sortBy : 'unitPrice';
+
   // The sort decides which store each card shows (cheapest or closest), then the order.
-    // "Nearest" only makes sense when stores have distances.
-    const hasDistances = (resultsSearch.data ?? []).some((item) =>
-      item.prices.some((p) => p.distanceMi != null),
+  const results = (isSubmitted && !isLoadingResults ? (resultsSearch.data ?? []) : [])
+    .map((item) => {
+      const shown = activeSort === 'distance' ? getNearestPrice(item) : getBestPrice(item);
+      if (!shown) return null;
+      const unitPrice = getUnitPrice(item, shown);
+      // Compare by price per unit when the size is known, otherwise by sticker price.
+      return { item, shown, compareValue: unitPrice ?? shown.price };
+    })
+    .filter((r): r is NonNullable<typeof r> => r !== null)
+    .sort((a, b) =>
+      activeSort === 'distance'
+        ? distanceForSorting(a.shown) - distanceForSorting(b.shown) || a.compareValue - b.compareValue
+        : a.compareValue - b.compareValue,
     );
-    const activeSort: SortOption = hasDistances ? sortBy : 'unitPrice';
-  
-    // The sort decides which store each card shows (cheapest or closest), then the order.
-    const results = (isSubmitted ? (resultsSearch.data ?? []) : [])
-      .map((item) => {
-        const shown = activeSort === 'distance' ? getNearestPrice(item) : getBestPrice(item);
-        if (!shown) return null;
-        const unitPrice = getUnitPrice(item, shown);
-        // Compare by price per unit when the size is known, otherwise by sticker price.
-        return { item, shown, compareValue: unitPrice ?? shown.price };
-      })
-      .filter((r): r is NonNullable<typeof r> => r !== null)
-      .sort((a, b) =>
-        activeSort === 'distance'
-          ? distanceForSorting(a.shown) - distanceForSorting(b.shown) || a.compareValue - b.compareValue
-          : a.compareValue - b.compareValue,
-      );
-  
-    const lowestValue = Math.min(...results.map((r) => r.compareValue));
 
   // BEST goes to the lowest price per unit among the cards shown.
-  const lowestUnitPrice = Math.min(...results.map((r) => r.compareValue));
+  const lowestValue = Math.min(...results.map((r) => r.compareValue));
 
   const renderContent = () => {
     // 1. Empty box: recent searches, or helper text on first visit
@@ -116,13 +120,25 @@ export default function SearchScreen() {
     }
 
     // 3. Searched: loading, error, no results, or results
-    if (resultsSearch.isLoading) {
-      return <Text style={[typography.meta, styles.message]}>Loading…</Text>;
+    if (resultsSearch.isError && !resultsSearch.data) {
+      const offline = isNetworkError(resultsSearch.error);
+      return (
+        <StateMessage
+          icon={offline ? 'wifi-off' : 'alert-circle'}
+          title={offline ? 'Can’t connect' : 'Something went wrong'}
+          message={
+            offline
+              ? 'Check your internet connection, then try your search again.'
+              : `We couldn’t load prices for “${submittedQuery}”. Please try again.`
+          }
+          action={{ label: 'Try Again', onPress: () => resultsSearch.refetch() }}
+        />
+      );
     }
-    if (resultsSearch.isError) {
-      return <Text style={[typography.meta, styles.message]}>Something went wrong.</Text>;
+    if (isLoadingResults) {
+      return <SearchResultsSkeleton />;
     }
-    if (results.length === 0 && !resultsSearch.isFetching) {
+    if (results.length === 0) {
       return (
         <NoResults
           query={submittedQuery}

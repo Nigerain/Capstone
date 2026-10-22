@@ -66,6 +66,19 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 }
 
+// True when the server answered "that doesn't exist" (404).
+export const isNotFound = (error: unknown) => error instanceof ApiError && error.status === 404;
+
+// True when we never got an answer: no Wi-Fi, timeout, or backend down.
+export const isNetworkError = (error: unknown) => error instanceof ApiError && error.status === 0;
+
+// React Query retry rule: retry network blips and 5xx up to 2 times,
+// but fail fast on 4xx (not found, not signed in) since retrying won't change the answer.
+export function shouldRetry(failureCount: number, error: unknown) {
+  if (error instanceof ApiError && error.status >= 400 && error.status < 500) return false;
+  return failureCount < 2;
+}
+
 // Shortcuts so endpoint code stays short.
 export const apiGet = <T>(path: string, token?: string | null) =>
   apiRequest<T>(path, { token });

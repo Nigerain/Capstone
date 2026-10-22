@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, fonts, radius, spacing, typography } from '../theme';
 import type { Item } from '../types/price';
 import { formatBrandSize, formatDistance, formatPrice } from '../utils/format';
 
@@ -10,12 +10,14 @@ type Props = {
   visible: boolean;
   item: Item;
   onClose: () => void;
+  onAddPrice: () => void;
 };
 
-export function ComparePricesSheet({ visible, item, onClose }: Props) {
+export function ComparePricesSheet({ visible, item, onClose, onAddPrice }: Props) {
   const insets = useSafeAreaInsets();
   const sorted = [...item.prices].sort((a, b) => a.price - b.price);
   const lowest = sorted[0]?.price ?? 0;
+  const isSingleStore = sorted.length === 1;
 
   return (
     <Modal
@@ -50,11 +52,21 @@ export function ComparePricesSheet({ visible, item, onClose }: Props) {
           <Text style={typography.meta}>
             {item.name} · {formatBrandSize(item)}
           </Text>
-          <Text style={[typography.small, styles.sortNote]}>Sorted by lowest price</Text>
+          {sorted.length > 1 && (
+            <Text style={[typography.small, styles.sortNote]}>Sorted by lowest price</Text>
+          )}
+
+          {sorted.length === 0 && (
+            <View style={styles.emptyBox}>
+              <Text style={typography.cardTitle}>No prices to compare yet</Text>
+              <Text style={typography.meta}>Add the price you saw and it will show up here.</Text>
+            </View>
+          )}
 
           <ScrollView style={styles.list}>
             {sorted.map((price) => {
-              const isBest = price.price === lowest;
+              // With one store there's nothing to beat, so no BEST badge.
+              const isBest = !isSingleStore && price.price === lowest;
               return (
                 <View key={price.id} style={styles.row}>
                   <View style={styles.storeIcon}>
@@ -73,7 +85,7 @@ export function ComparePricesSheet({ visible, item, onClose }: Props) {
                       </View>
                     )}
                     <Text style={typography.cardTitle}>{formatPrice(price.price)}</Text>
-                    {!isBest && (
+                    {!isBest && !isSingleStore && (
                       <Text style={typography.small}>+{formatPrice(price.price - lowest)}</Text>
                     )}
                   </View>
@@ -81,6 +93,23 @@ export function ComparePricesSheet({ visible, item, onClose }: Props) {
               );
             })}
           </ScrollView>
+
+          {sorted.length <= 1 && (
+            <View style={styles.footer}>
+              {isSingleStore && (
+                <Text style={[typography.meta, styles.footerText]}>
+                  Only one store so far. Seen it somewhere else?
+                </Text>
+              )}
+              <Pressable
+                onPress={onAddPrice}
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.addButtonText}>Add a Price</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
       </View>
     </Modal>
@@ -115,7 +144,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   sortNote: { marginTop: spacing.sm },
-  list: { marginTop: spacing.sm },
+  list: { marginTop: spacing.sm, flexGrow: 0 },
+  emptyBox: { marginTop: spacing.lg, gap: spacing.xs },
+  footer: { marginTop: spacing.lg, gap: spacing.md },
+  footerText: { textAlign: 'center' },
+  addButton: {
+    height: 48,
+    borderRadius: radius.round,
+    backgroundColor: colors.dark,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pressed: { opacity: 0.85 },
+  addButtonText: { fontFamily: fonts.semibold, fontSize: 16, color: colors.onDark },
   row: {
     flexDirection: 'row',
     alignItems: 'center',

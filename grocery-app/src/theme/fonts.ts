@@ -1,5 +1,5 @@
 import { Fraunces_700Bold } from '@expo-google-fonts/fraunces';
-import { Inter_400Regular } from '@expo-google-fonts/inter';
+import { Inter_400Regular, Inter_600SemiBold } from '@expo-google-fonts/inter';
 import { Unna_700Bold } from '@expo-google-fonts/unna';
 import {
   WorkSans_400Regular,
@@ -13,5 +13,6 @@ export const fontAssets = {
   WorkSans_500Medium,
   WorkSans_600SemiBold,
   Inter_400Regular,
+  Inter_600SemiBold,
   Unna_700Bold,
 };

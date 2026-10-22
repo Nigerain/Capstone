@@ -8,13 +8,19 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SplashView } from './src/components/SplashView';
 import { RootNavigator } from './src/navigation/RootNavigator';
+import { shouldRetry } from './src/services/api';
 import { colors } from './src/theme';
 import { fontAssets } from './src/theme/fonts';
 
 // Keep the native splash up until SplashView is on screen to take over.
 SplashScreen.preventAutoHideAsync();
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    // Default is 3 retries even on a 404, which made error screens take ~7s to show up.
+    queries: { retry: shouldRetry },
+  },
+});
 
 const navTheme: Theme = {
   ...DefaultTheme,
