@@ -22,7 +22,7 @@ export function RootNavigator() {
     >
       <Stack.Screen name="Tabs" component={TabNavigator} />
       <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
-      {/* Add a Price flow: chooser slides up as a sheet; the camera takes the full screen. */}
+      {/* Add a Price flow: every step slides up as a sheet over the tabs. */}
       <Stack.Screen
         name="AddPrice"
         component={AddPriceScreen}
@@ -31,7 +31,7 @@ export function RootNavigator() {
       <Stack.Screen
         name="ScanPrice"
         component={CameraScreen}
-        options={{ presentation: 'fullScreenModal' }}
+        options={{ presentation: 'modal' }}
       />
       <Stack.Screen
         name="ManualEntry"
