@@ -9,7 +9,10 @@ export type TabParamList = {
 
 export type RootStackParamList = {
   Tabs: NavigatorScreenParams<TabParamList>;
+  // Add a Price flow, opened from the "+" in the tab bar.
   AddPrice: undefined;
+  ScanPrice: undefined;
+  ManualEntry: undefined;
   ProductDetail: { itemId: string };
   Signup: undefined;
   Login: undefined;

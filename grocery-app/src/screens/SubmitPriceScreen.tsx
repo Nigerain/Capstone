@@ -1,9 +1,6 @@
-import { View, Text } from 'react-native';
+import { FlowPlaceholder } from '../components/FlowPlaceholder';
 
-export default function SubmitPriceScreen() {
-  return (
-    <View>
-      <Text>Submit Price Screen</Text>
-    </View>
-  );
+// TODO: build from the Figma frame "Submission (Manual) Screen".
+export function SubmitPriceScreen() {
+  return <FlowPlaceholder title="Enter manually" />;
 }

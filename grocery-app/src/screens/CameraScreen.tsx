@@ -1,9 +1,6 @@
-import { View, Text } from 'react-native';
+import { FlowPlaceholder } from '../components/FlowPlaceholder';
 
-export default function CameraScreen() {
-  return (
-    <View>
-      <Text>Camera Screen</Text>
-    </View>
-  );
+// TODO: build from the Figma frame "Submission (scan) Screen".
+export function CameraScreen() {
+  return <FlowPlaceholder title="Scan a price tag" />;
 }
