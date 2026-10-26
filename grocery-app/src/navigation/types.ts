@@ -12,6 +12,7 @@ export type RootStackParamList = {
   // Add a Price flow, opened from the "+" in the tab bar.
   AddPrice: undefined;
   ScanPrice: undefined;
+  ScanReview: undefined; // reads the photo from useScanStore
   ManualEntry: undefined;
   ProductDetail: { itemId: string };
   Signup: undefined;

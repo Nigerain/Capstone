@@ -31,6 +31,22 @@
           "resizeMode": "contain",
           "backgroundColor": "#F2F0EF"
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Grocery PricePal uses the camera to scan price tags so you don't have to type them in.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Grocery PricePal lets you pick a photo of a price tag from your library.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
       ]
     ]
   }

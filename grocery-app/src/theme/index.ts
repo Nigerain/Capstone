@@ -19,15 +19,22 @@ export const colors = {
   onDark: '#FFFFFF',
   placeholder: '#817979', // form input placeholders
   error: '#B3261E', // form validation messages (not in Figma yet)
+  // Scan screen
+  camera: '#353331', // behind the camera preview
+  cameraControl: '#211F1E', // round X / flash buttons
+  scanFrame: '#F7EF54', // yellow frame corners
+  scanTitle: '#FEFBFB', // "Scan Tag"
 } as const;
 
 export const fonts = {
   heading: 'Fraunces_700Bold',
   headingRegular: 'Fraunces_400Regular', // signup subtitle, terms line
+  headingSemibold: 'Fraunces_600SemiBold', // "Scan Tag"
   semibold: 'WorkSans_600SemiBold',
   medium: 'WorkSans_500Medium',
   regular: 'WorkSans_400Regular',
   body: 'Inter_400Regular',
+  bodyMedium: 'Inter_500Medium', // scan frame hint
   bodySemibold: 'Inter_600SemiBold', // large dark buttons ("Add a Price"), input text
   bodyBold: 'Inter_700Bold', // auth buttons, "Log in"
   badge: 'Unna_700Bold',

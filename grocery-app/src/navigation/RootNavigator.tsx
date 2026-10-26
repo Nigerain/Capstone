@@ -4,6 +4,7 @@ import { AddPriceScreen } from '../screens/AddPriceScreen';
 import { CameraScreen } from '../screens/CameraScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
+import { ScanReviewScreen } from '../screens/ScanReviewScreen';
 import { SignupScreen } from '../screens/SignupScreen';
 import { SubmitPriceScreen } from '../screens/SubmitPriceScreen';
 import { colors } from '../theme';
@@ -31,6 +32,11 @@ export function RootNavigator() {
       <Stack.Screen
         name="ScanPrice"
         component={CameraScreen}
+        options={{ presentation: 'modal' }}
+      />
+      <Stack.Screen
+        name="ScanReview"
+        component={ScanReviewScreen}
         options={{ presentation: 'modal' }}
       />
       <Stack.Screen
