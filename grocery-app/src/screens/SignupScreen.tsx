@@ -9,7 +9,7 @@ import {
   StyleSheet,
   Text,
   View,
-  type TextInput,
+  type TextInputInstance,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -38,9 +38,9 @@ export function SignupScreen({ navigation }: Props) {
   const [showPassword, setShowPassword] = useState(false);
 
   // Lets "next" on the keyboard jump to the following field.
-  const lastNameRef = useRef<TextInput>(null);
-  const emailRef = useRef<TextInput>(null);
-  const passwordRef = useRef<TextInput>(null);
+  const lastNameRef = useRef<TextInputInstance>(null);
+  const emailRef = useRef<TextInputInstance>(null);
+  const passwordRef = useRef<TextInputInstance>(null);
 
   const {
     control,
@@ -211,7 +211,7 @@ export function SignupScreen({ navigation }: Props) {
                     autoComplete="new-password"
                     textContentType="newPassword"
                     returnKeyType="done"
-                    onSubmitEditing={onSubmit}
+                    onSubmitEditing={() => onSubmit()}
                     right={
                       <PasswordToggle
                         shown={showPassword}

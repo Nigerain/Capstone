@@ -11,7 +11,7 @@ import {
   StyleSheet,
   Text,
   View,
-  type TextInput,
+  type TextInputInstance,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -38,7 +38,7 @@ const BUTTON_WIDTH = 271;
 export function LoginScreen({ navigation }: Props) {
   const setUser = useAuthStore((s) => s.setUser);
   const [showPassword, setShowPassword] = useState(false);
-  const passwordRef = useRef<TextInput>(null);
+  const passwordRef = useRef<TextInputInstance>(null);
 
   const {
     control,
@@ -162,7 +162,7 @@ export function LoginScreen({ navigation }: Props) {
                   autoComplete="current-password"
                   textContentType="password"
                   returnKeyType="go"
-                  onSubmitEditing={onSubmit}
+                  onSubmitEditing={() => onSubmit()}
                   right={
                     <PasswordToggle
                       shown={showPassword}

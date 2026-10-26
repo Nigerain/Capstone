@@ -6,6 +6,7 @@ import {
   TextInput,
   View,
   type StyleProp,
+  type TextInputInstance,
   type TextInputProps,
   type TextStyle,
   type ViewStyle,
@@ -26,35 +27,37 @@ type Props = TextInputProps & {
   labelStyle?: StyleProp<TextStyle>;
 };
 
-export const FormField = forwardRef<TextInput, Props>(function FormField(
-  { label, icon, error, right, fieldStyle, labelStyle, style, ...inputProps },
-  ref
-) {
-  return (
-    <View style={styles.group}>
-      <Text style={[typography.label, labelStyle]}>{label}</Text>
-      <View
-        style={[styles.field, fieldStyle, error ? styles.fieldError : null]}
-      >
-        <Feather name={icon} size={19} color={colors.placeholder} />
-        <TextInput
-          ref={ref}
-          style={[styles.input, style]}
-          placeholderTextColor={colors.placeholder}
-          accessibilityLabel={label}
-          accessibilityHint={error}
-          {...inputProps}
-        />
-        {right}
+export const FormField = forwardRef<TextInputInstance, Props>(
+  function FormField(
+    { label, icon, error, right, fieldStyle, labelStyle, style, ...inputProps },
+    ref
+  ) {
+    return (
+      <View style={styles.group}>
+        <Text style={[typography.label, labelStyle]}>{label}</Text>
+        <View
+          style={[styles.field, fieldStyle, error ? styles.fieldError : null]}
+        >
+          <Feather name={icon} size={19} color={colors.placeholder} />
+          <TextInput
+            ref={ref}
+            style={[styles.input, style]}
+            placeholderTextColor={colors.placeholder}
+            accessibilityLabel={label}
+            accessibilityHint={error}
+            {...inputProps}
+          />
+          {right}
+        </View>
+        {error ? (
+          <Text style={styles.error} accessibilityLiveRegion="polite">
+            {error}
+          </Text>
+        ) : null}
       </View>
-      {error ? (
-        <Text style={styles.error} accessibilityLiveRegion="polite">
-          {error}
-        </Text>
-      ) : null}
-    </View>
-  );
-});
+    );
+  }
+);
 
 const styles = StyleSheet.create({
   group: { gap: spacing.sm },
