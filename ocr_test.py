@@ -1,13 +1,15 @@
+import csv
+import io
 import os
 import re
-import csv
 import unicodedata
+from collections import Counter
+
 import cv2
-import io
 import pytesseract
 import numpy as np
 import pillow_heif
-from PIL import Image
+from PIL import Image, ImageOps
 from google.cloud import vision
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -57,7 +59,8 @@ UNIT_PRICE_LABEL = re.compile(
 )
 # [ \t]* not \s*, so "4.49\nG" isn't read as a weight
 # "fl" catches "64 fl oz"; "count" is spelled out on digital shelf tags, not just "ct"
-WEIGHT_PATTERN = re.compile(r'\d+(?:\.\d+)?[ \t]*(?:fl[ \t.]*)?(?:oz|lbs?|g|kg|ml|l|gal|ct|count|dz|pk)\b', re.IGNORECASE)
+# single-digit fraction keeps "(1/2 GAL)" from being read as "2 GAL"; "6/13.2 OZ" (a 6 pack) is not one
+WEIGHT_PATTERN = re.compile(r'(?:\d/\d|\d+(?:\.\d+)?)[ \t]*(?:fl[ \t.]*)?(?:oz|lbs?|g|kg|ml|l|gal|ct|count|dz|pk)\b', re.IGNORECASE)
 NUTRITION_WORDS = re.compile(
     r'fat|protein|sugar|carb|fiber|sodium|cholest|serving|calories|potas|iron|calcium|vitamin',
     re.IGNORECASE,
@@ -87,14 +90,22 @@ GENERIC_MODIFIER_ONLY = re.compile(
 )
 # lookup, not a positional rule; brand position varies by tag. Add new ones as seen.
 KNOWN_BRANDS = [
-    "lidl preferred selection", "preferred selection", "lidl",
+    "lidl preferred selection", "preferred selection", "lidl", "milbona",
     "good & gather", "dave's killer bread", "wonder bread", "wonder",
     "alouette", "eggland's best", "lactaid", "perdue", "tyson",
     "hy-vee", "target", "butcher's specialty", "allen harim",
+    "kirkland signature", "member's mark", "market pantry", "trader joe's",
 ]
-BRAND_PATTERN = re.compile(
-    r'\b(' + '|'.join(re.escape(b) for b in KNOWN_BRANDS) + r')\b', re.IGNORECASE
-)
+# a retailer, not who makes the product; a product brand wins when both appear
+STORE_BRANDS = {"lidl", "hy-vee", "target"}
+
+
+def _brand_alternation(brands):
+    # longest first, so "lidl preferred selection" beats its prefix "lidl" whatever the list order
+    return "|".join(re.escape(b) for b in sorted(brands, key=len, reverse=True))
+
+
+BRAND_PATTERN = re.compile(rf"\b({_brand_alternation(KNOWN_BRANDS)})\b", re.IGNORECASE)
 # caps the longest-run heuristic so garbled OCR doesn't join into a fake name
 # egg/poultry names run to 7 words ("Free Range Large Brown Grade A Eggs")
 MAX_PLAUSIBLE_NAME_WORDS = 7
@@ -115,19 +126,73 @@ def run_tesseract(image_path):
     return pytesseract.image_to_string(processed, config=config)
 
 def load_image_as_jpeg_bytes(image_path):
-    img = Image.open(image_path).convert("RGB")
+    # phones store "which way is up" in EXIF and the re-save below drops it, so apply it first
+    # or a portrait photo reaches Vision sideways
+    with Image.open(image_path) as source:
+        img = ImageOps.exif_transpose(source).convert("RGB")
     buffer = io.BytesIO()
     img.save(buffer, format="JPEG")
     return buffer.getvalue()
 
 
-def run_vision(client, image_path):
-    content = load_image_as_jpeg_bytes(image_path)
-    image = vision.Image(content=content)
-    response = client.text_detection(image=image)
+def _annotate(detect, image_path):
+    # the API reports failures inside the response, not as an exception
+    response = detect(image=vision.Image(content=load_image_as_jpeg_bytes(image_path)))
     if response.error.message:
-        raise Exception(response.error.message)
-    return response.full_text_annotation.text
+        raise RuntimeError(response.error.message)
+    return response.full_text_annotation
+
+
+def run_vision(client, image_path):
+    return _annotate(client.text_detection, image_path).text
+
+
+def run_vision_words(client, image_path):
+    """Like run_vision, but also returns (word, confidence) pairs. Uses
+    document_text_detection because text_detection leaves every word's
+    confidence at 0.0."""
+    annotation = _annotate(client.document_text_detection, image_path)
+    words = [
+        ("".join(symbol.text for symbol in word.symbols), word.confidence)
+        for page in annotation.pages
+        for block in page.blocks
+        for paragraph in block.paragraphs
+        for word in paragraph.words
+    ]
+    return annotation.text, words
+
+
+# Below this the app asks the user to type the price instead of trusting OCR.
+# Provisional: on 45 labelled photos (18 degraded on purpose) every bad read
+# scored under 0.8 and 1 of 40 correct prices did too. Re-check against real
+# scan logs before relying on it.
+MIN_PRICE_CONFIDENCE = 0.8
+LABELLED_PRICE_FACTOR = 1.0
+FALLBACK_PRICE_FACTOR = 0.85
+# extract_final_price tags a price found next to a "you pay"-style label with this
+LABELLED_SOURCE_PREFIX = "label:"
+
+
+def price_confidence(price, price_source, words):
+    """0-1 score: Vision's best confidence on the words that are the price
+    (the same price is often printed twice, so the clearest read counts),
+    scaled down when the price was a fallback guess, not a labelled one.
+    A word counts only if it is the whole price ("$1.79", "179", "1,79", or
+    "69" for a 69 cent price), so digits inside other numbers don't."""
+    if price is None:
+        return 0.0
+    forms = {price, price.replace(".", "")}
+    if price.startswith("0."):
+        cents = price[2:]
+        forms |= {cents, cents.lstrip("0")}
+    matches = [conf for text, conf in words
+               if re.sub(r"^\D+|\D+$", "", text).replace(",", ".") in forms]
+    if not matches:
+        return 0.0
+    labelled = price_source.startswith(LABELLED_SOURCE_PREFIX)
+    factor = LABELLED_PRICE_FACTOR if labelled else FALLBACK_PRICE_FACTOR
+    return round(max(matches) * factor, 3)
+
 
 def extract_prices(text):
     text = DATE_PATTERN.sub(" ", text)
@@ -155,7 +220,7 @@ def extract_final_price(text):
         for candidate in nearby:
             prices = extract_prices(candidate)
             if prices:
-                return prices[-1].lstrip("$"), f"label: {label.group().upper()}"
+                return prices[-1].lstrip("$"), f"{LABELLED_SOURCE_PREFIX} {label.group().upper()}"
 
     # 2. no label: exclude per-unit prices, SAVE markdowns, and nutrition/
     #    container-size numbers. Excluded by line, not nearby lines, so one
@@ -242,10 +307,28 @@ def extract_item_name(text):
     return best
 
 
+def _brand_key(s):
+    # OCR splits "Good&Gather" over two lines and varies the apostrophe, so brands are
+    # compared with whitespace collapsed and no spaces around "&"
+    s = re.sub(r"\s+", " ", s.replace("’", "'").lower())
+    return re.sub(r"\s*&\s*", "&", s)
+
+
+_BRANDS_BY_KEY = {_brand_key(b): b for b in KNOWN_BRANDS}
+_STORE_BRAND_KEYS = {_brand_key(b) for b in STORE_BRANDS}
+_BRAND_SEARCH = re.compile(rf"\b({_brand_alternation(_BRANDS_BY_KEY)})\b")
+
+
 def extract_brand(text):
     # None (not a guess) when no known brand matches; wrong is worse than blank
-    match = BRAND_PATTERN.search(text)
-    return match.group(1).title() if match else None
+    found = [m.group(1) for m in _BRAND_SEARCH.finditer(_brand_key(text))]
+    if not found:
+        return None
+    product_brands = [key for key in found if key not in _STORE_BRAND_KEYS]
+    # most often printed wins: a tag repeats its brand, while a split fragment
+    # ("PREFERRED / SELECTION") or a distributor line shows up once; ties keep the earliest
+    counts = Counter(product_brands or found)
+    return _BRANDS_BY_KEY[max(counts, key=counts.get)].title()
 
 
 def extract_unit_size(text):
@@ -284,16 +367,19 @@ def build_row(filename, engine, text):
 
 def scan_price_tag(image_path, client=None):
     """Entry point for one photo - what a backend endpoint calls. main()
-    below only batch-tests this against the 38 photos."""
+    below only batch-tests the extractors against test_images/."""
     if client is None:
         client = get_vision_client()
-    text = run_vision(client, image_path)
-    price, _ = extract_final_price(text)
+    text, words = run_vision_words(client, image_path)
+    price, price_source = extract_final_price(text)
+    confidence = price_confidence(price, price_source, words)
     return {
         "itemName": extract_item_name(text),
         "brand": extract_brand(text),
         "unitSize": extract_unit_size(text),
         "price": price,
+        "priceConfidence": confidence,
+        "needsManualPrice": confidence < MIN_PRICE_CONFIDENCE,
     }
 
 
@@ -325,25 +411,49 @@ def _normalized_match(guess, correct):
     return "Y" if normalize(guess) == normalize(correct) else "N"
 
 
-# ground truth uses full words ("gallon"), extractor keeps tag abbreviations ("GAL"), same value
-_SIZE_UNIT_SYNONYMS = [
-    ("GALLONS", "GAL"), ("GALLON", "GAL"),
-    ("POUNDS", "LB"), ("POUND", "LB"),
-    ("OUNCES", "OZ"), ("OUNCE", "OZ"),
-    ("COUNT", "CT"),
-]
+# unit -> (kind, size in ounces / fluid ounces / each), so "1.25 lb" can equal "20 oz".
+# plain "oz" is weight; fluid ounces need "fl".
+_SIZE_UNITS = {
+    "oz": ("weight", 1.0), "lb": ("weight", 16.0), "g": ("weight", 0.035274), "kg": ("weight", 35.274),
+    "floz": ("volume", 1.0), "gal": ("volume", 128.0), "ml": ("volume", 0.033814), "l": ("volume", 33.814),
+    "ct": ("count", 1.0), "dz": ("count", 12.0),
+}
+_SIZE_UNIT_NAMES = {
+    "ounce": "oz", "ounces": "oz", "lbs": "lb", "pound": "lb", "pounds": "lb",
+    "gallon": "gal", "gallons": "gal", "liter": "l", "liters": "l", "litre": "l", "litres": "l",
+    "count": "ct", "dozen": "dz",
+}
+_SIZE_PATTERN = re.compile(r"^(?:(\d)/(\d)|(\d+(?:\.\d+)?))([a-z.]+)$")
+# metric labels are rounded ("3.78 L" on a 1 gallon jug)
+SIZE_TOLERANCE = 0.01
+
+
+def _parse_size(s):
+    # (kind, amount in base units), or None if it isn't a plain "<number> <unit>"
+    match = _SIZE_PATTERN.match(re.sub(r"\s+", "", s or "").lower())
+    if not match:
+        return None
+    numerator, denominator, amount, unit = match.groups()
+    unit = unit.replace(".", "")
+    unit = _SIZE_UNIT_NAMES.get(unit, unit)
+    if unit not in _SIZE_UNITS or denominator == "0":
+        return None
+    value = float(numerator) / float(denominator) if numerator else float(amount)
+    kind, factor = _SIZE_UNITS[unit]
+    return kind, value * factor
 
 
 def _normalized_size_match(guess, correct):
     if not correct:
         return ""
-    def normalize(s):
-        s = re.sub(r"\s+", "", s or "").upper()
-        for long_form, short_form in _SIZE_UNIT_SYNONYMS:
-            if s.endswith(long_form):
-                s = s[: -len(long_form)] + short_form
-        return s
-    return "Y" if normalize(guess) == normalize(correct) else "N"
+    parsed_guess, parsed_correct = _parse_size(guess), _parse_size(correct)
+    if parsed_guess and parsed_correct:
+        (guess_kind, guess_amount), (correct_kind, correct_amount) = parsed_guess, parsed_correct
+        close = abs(guess_amount - correct_amount) <= SIZE_TOLERANCE * max(guess_amount, correct_amount)
+        return "Y" if guess_kind == correct_kind and close else "N"
+    # not a plain "<number> <unit>" (e.g. "6/13.2 OZ"): fall back to exact text
+    compact = lambda s: re.sub(r"\s+", "", s or "").upper()
+    return "Y" if compact(guess) == compact(correct) else "N"
 
 
 def main():
