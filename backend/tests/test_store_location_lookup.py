@@ -1,25 +1,19 @@
-import sqlite3
-import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
-from pathlib import Path
 from unittest.mock import Mock, patch
 
 import httpx
 
 from app.services.store_location_lookup import (
-    StoreLocationLookupError, NominatimProvider, find_store_locations, validate_coordinates,
+    StoreLocationLookupError, NominatimProvider, create_store_location_lookup_provider,
+    find_store_locations, validate_coordinates,
 )
 from app.services.store_location_lookup_cache import StoreLocationLookupCache
 
 
 class StoreLocationLookupTests(unittest.TestCase):
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
-        self.addCleanup(self.directory.cleanup)
-        self.path = str(Path(self.directory.name) / "store_location_lookup.sqlite3")
-        self.cache = StoreLocationLookupCache(self.path)
+        self.cache = StoreLocationLookupCache()
         self.requests = []
         self.response = [{"lat": "40.7", "lon": "-74.0", "display_name": "Store, New York"}]
         self.status = 200
@@ -56,13 +50,12 @@ class StoreLocationLookupTests(unittest.TestCase):
             with self.subTest(latitude=latitude, longitude=longitude), self.assertRaises(ValueError):
                 validate_coordinates(latitude, longitude)
 
-    def test_candidates_and_persistent_cache(self):
+    def test_candidates_and_memory_cache(self):
         self.response.append({"lat": "41", "lon": "-73", "display_name": "Other branch"})
         result = self.provider.search("  123 Main   St ")
         self.assertEqual(len(result), 2)
         self.assertEqual(result[0].latitude, 40.7)
         self.assertTrue(result[0].attribution)
-        self.provider.cache = StoreLocationLookupCache(self.path)
         self.assertEqual(self.provider.search("123 MAIN ST"), result)
         self.assertEqual(len(self.requests), 1)
         self.assertIn("GroceryPricePal", self.requests[0].headers["User-Agent"])
@@ -84,7 +77,7 @@ class StoreLocationLookupTests(unittest.TestCase):
                     self.provider.search("Invalid result")
         self.assertEqual(len(self.requests), 4)
 
-    def test_busy_response_persists_cooldown_without_retry(self):
+    def test_busy_response_sets_cooldown_without_retry(self):
         self.status = 429
         self.headers = {"Retry-After": "120"}
         with self.assertRaises(StoreLocationLookupError) as result:
@@ -94,33 +87,28 @@ class StoreLocationLookupTests(unittest.TestCase):
             self.provider.search("Another store")
         self.assertEqual(len(self.requests), 1)
 
-    def test_request_spacing_is_shared_by_cache_instances(self):
-        other_cache = StoreLocationLookupCache(self.path)
-        with patch("app.services.store_location_lookup_cache.time.time", return_value=100), \
+    def test_request_spacing_within_one_cache(self):
+        with patch("app.services.store_location_lookup_cache.time.monotonic", return_value=100), \
                 patch("app.services.store_location_lookup_cache.time.sleep") as sleep:
             self.cache.lookup("one", lambda: [])
-            other_cache.lookup("two", lambda: [])
+            self.cache.lookup("two", lambda: [])
             sleep.assert_called_once_with(1.0)
 
     def test_concurrent_lookups_share_one_cached_result(self):
-        caches = [StoreLocationLookupCache(self.path) for _ in range(4)]
         fetch = Mock(return_value=[{"latitude": 40.7}])
         with ThreadPoolExecutor(max_workers=4) as executor:
-            results = list(executor.map(lambda cache: cache.lookup("same", fetch), caches))
+            results = list(executor.map(lambda _: self.cache.lookup("same", fetch), range(4)))
         fetch.assert_called_once()
         self.assertTrue(all(result == results[0] for result in results))
 
-    def test_configuration_requires_contact_and_persistent_path(self):
-        with self.assertRaises(ValueError):
-            StoreLocationLookupCache(":memory:")
+    def test_configuration_requires_contact(self):
         with self.assertRaises(ValueError):
             NominatimProvider(user_agent="python-httpx", cache=self.cache)
 
     def test_expired_cache_is_refreshed(self):
         self.provider.search("Old store")
-        with closing(sqlite3.connect(self.path)) as connection, connection:
-            connection.execute("UPDATE store_location_lookup_cache SET expires_at = 0")
-        with patch("app.services.store_location_lookup_cache.time.sleep"):
+        with patch("app.services.store_location_lookup_cache.time.monotonic",
+                   return_value=10 ** 12):
             self.provider.search("Old store")
         self.assertEqual(len(self.requests), 2)
 
@@ -133,32 +121,34 @@ class StoreLocationLookupTests(unittest.TestCase):
                 self.provider.search("123 Main St")
         self.assertNotIn("123 Main St", str(result.exception))
 
-    def test_cache_connections_close_after_success_and_failure(self):
-        connections = []
+    def test_provider_instances_share_the_process_cache(self):
+        with patch.dict("os.environ", {
+            "STORE_LOCATION_LOOKUP_PROVIDER": "nominatim",
+            "STORE_LOCATION_LOOKUP_USER_AGENT": "GroceryPricePal (https://example.com/contact)",
+        }):
+            first = create_store_location_lookup_provider()
+            second = create_store_location_lookup_provider()
+        self.assertIs(first.cache, second.cache)
 
-        class TrackedConnection(sqlite3.Connection):
-            closed = False
+    def test_new_cache_starts_empty(self):
+        self.cache.lookup("store", lambda: [{"latitude": 40.7}])
+        fresh = StoreLocationLookupCache()
+        fetch = Mock(return_value=[])
+        self.assertEqual(fresh.lookup("store", fetch), [])
+        fetch.assert_called_once()
 
-            def close(self):
-                self.closed = True
-                super().close()
+    def test_cached_results_are_not_changed_by_callers(self):
+        result = self.cache.lookup("store", lambda: [{"latitude": 40.7}])
+        result[0]["latitude"] = 0
+        cached = self.cache.lookup("store", lambda: self.fail("Expected cache hit"))
+        self.assertEqual(cached[0]["latitude"], 40.7)
 
-        connect = sqlite3.connect
-
-        def tracked_connect(*args, **kwargs):
-            connection = connect(*args, factory=TrackedConnection, **kwargs)
-            connections.append(connection)
-            return connection
-
-        with patch("app.services.store_location_lookup_cache.sqlite3.connect", tracked_connect):
-            cache = StoreLocationLookupCache(self.path)
-            cache.lookup("success", lambda: [])
-            cache.lookup("success", lambda: self.fail("Expected a cached result"))
-            with patch("app.services.store_location_lookup_cache.time.sleep"):
-                with self.assertRaises(StoreLocationLookupError):
-                    cache.lookup("failure", Mock(side_effect=StoreLocationLookupError("Unavailable")))
-        self.assertEqual(len(connections), 4)
-        self.assertTrue(all(connection.closed for connection in connections))
+    def test_cache_size_is_bounded(self):
+        with patch("app.services.store_location_lookup_cache.time.sleep"):
+            for index in range(257):
+                self.cache.lookup(str(index), lambda: [])
+        self.assertEqual(len(self.cache.results), 256)
+        self.assertNotIn("0", self.cache.results)
 
 
 if __name__ == "__main__":

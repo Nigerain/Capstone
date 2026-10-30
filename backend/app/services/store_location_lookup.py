@@ -6,8 +6,8 @@ calling CreateStore. This module does not read or write PostgreSQL records.
 
 Display the returned OpenStreetMap attribution and link alongside lookup results.
 Public API policy: https://operations.osmfoundation.org/policies/nominatim/
-All workers must share one persistent cache file on one host. Multiple hosts
-require a central store location lookup service or a different provider. Call this
+The in-memory cache supports one backend process and clears on restart. Multiple
+workers or hosts require shared request coordination or a different provider. Call this
 synchronous utility from a synchronous route or a worker thread, not an async loop.
 Only public Store addresses belong here; never pass user GPS or private addresses.
 """
@@ -24,8 +24,11 @@ import httpx
 
 from .store_location_lookup_cache import StoreLocationLookupCache, StoreLocationLookupCooldown
 
+# Required if we use openstreetmap
 ATTRIBUTION = "© OpenStreetMap contributors"
 ATTRIBUTION_URL = "https://www.openstreetmap.org/copyright"
+
+_lookup_cache = StoreLocationLookupCache()
 
 
 class StoreLocationLookupError(Exception):
@@ -162,13 +165,13 @@ class NominatimProvider:
 
 
 def create_store_location_lookup_provider() -> StoreLocationLookupProvider:
-    # use one shared cache file for every worker on the same host.
+    # reuse the same in-memory cache for every lookup in this process.
     provider = os.environ.get("STORE_LOCATION_LOOKUP_PROVIDER", "nominatim")
     if provider != "nominatim":
         raise ValueError("Unsupported store location lookup provider.")
     return NominatimProvider(
         user_agent=os.environ["STORE_LOCATION_LOOKUP_USER_AGENT"],
-        cache=StoreLocationLookupCache(os.environ["STORE_LOCATION_LOOKUP_CACHE_PATH"]),
+        cache=_lookup_cache,
         base_url=os.environ.get("STORE_LOCATION_LOOKUP_BASE_URL", "https://nominatim.openstreetmap.org"),
         timeout=float(os.environ.get("STORE_LOCATION_LOOKUP_TIMEOUT", "10")),
     )
