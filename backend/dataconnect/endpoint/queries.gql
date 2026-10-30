@@ -41,7 +41,9 @@ query GetItemPrices($itemId: UUID!) @auth(level: USER) {
         jsonb_build_object(
           'id', s.id,
           'storeName', s.store_name,
-          'storeLocation', s.store_location
+          'storeLocation', s.store_location,
+          'latitude', s.latitude,
+          'longitude', s.longitude
         ) AS "store"
       FROM price_record pr
       JOIN item i ON i.id = pr.item_id
@@ -80,6 +82,8 @@ query SearchStores($pattern: String!) @auth(level: USER) {
     id
     storeName
     storeLocation
+    latitude
+    longitude
   }
 }
 
@@ -266,6 +270,8 @@ query GetPriceHistory(
       id
       storeName
       storeLocation
+      latitude
+      longitude
     }
   }
 }
@@ -289,7 +295,9 @@ query GetUserSubmissions(
         i.item_name AS "itemName",
         s.id AS "storeId",
         s.store_name AS "storeName",
-        s.store_location AS "storeLocation"
+        s.store_location AS "storeLocation",
+        s.latitude AS "latitude",
+        s.longitude AS "longitude"
       FROM price_submission ps
       JOIN price_record pr
         ON pr.id = ps.price_record_id

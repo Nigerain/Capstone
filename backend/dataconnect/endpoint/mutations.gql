@@ -198,11 +198,15 @@ mutation CreateItem(
 mutation CreateStore(
   $storeName: String!
   $storeLocation: String
+  $latitude: Float
+  $longitude: Float
 ) @auth(level: USER) {
   store_insert(
     data: {
       storeName: $storeName
       storeLocation: $storeLocation
+      latitude: $latitude
+      longitude: $longitude
     }
   )
 }

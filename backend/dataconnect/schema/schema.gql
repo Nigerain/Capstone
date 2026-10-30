@@ -11,6 +11,8 @@ type Store @table {
   id: UUID! @default(expr: "uuidV4()")
   storeName: String! @col(name: "store_name")
   storeLocation: String @col(name: "store_location")
+  latitude: Float
+  longitude: Float
 }
 
 type Category @table {
