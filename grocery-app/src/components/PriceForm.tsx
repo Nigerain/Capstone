@@ -47,7 +47,7 @@ type FormValues = {
 // so the user types it instead of trusting a bad read.
 function toFormValues(result: ScanResult | null): FormValues {
   const trustedPrice =
-    result && !result.needsManualPrice && result.price !== null
+    result && result.status === 'ok' && result.price !== null
       ? result.price.toFixed(2)
       : '';
   return {
@@ -88,13 +88,23 @@ export function PriceForm({
   } = useForm<FormValues>({ defaultValues: toFormValues(result) });
 
   const values = useWatch({ control });
-  const [editingItem, setEditingItem] = useState(() => !result?.itemName);
 
   // A field is "scanned" while it still holds exactly what OCR read.
-  const isScanned = (field: 'itemName' | 'price') =>
+  // After a scan, any of the four OCR fields left empty is highlighted
+  // (Shernice: the name is often missing even when the price is fine).
+  type OcrField = 'itemName' | 'brand' | 'unitSize' | 'price';
+  const isScanned = (field: OcrField) =>
     fromScan && scanned[field] !== '' && values[field] === scanned[field];
-  const needsInput = (field: 'itemName' | 'price') =>
-    fromScan && !values[field];
+  const needsInput = (field: OcrField) => fromScan && !values[field];
+
+  const itemMissing =
+    needsInput('itemName') || needsInput('brand') || needsInput('unitSize');
+  const itemScanned = !itemMissing && isScanned('itemName');
+
+  // Start with the item fields open when there's something to fill in.
+  const [editingItem, setEditingItem] = useState(
+    () => !result?.itemName || !result.brand || !result.unitSize
+  );
 
   // Jump straight to the empty price when that's the only thing missing.
   useEffect(() => {
@@ -177,14 +187,14 @@ export function PriceForm({
           {/* Item */}
           <FieldLabel
             label="Item"
-            scanned={isScanned('itemName')}
-            missing={needsInput('itemName')}
+            scanned={itemScanned}
+            missing={itemMissing}
           />
           <View
             style={[
               styles.card,
               styles.itemCard,
-              outline(isScanned('itemName'), needsInput('itemName')),
+              outline(itemScanned, itemMissing),
               errors.itemName && styles.cardError,
             ]}
           >
@@ -213,7 +223,14 @@ export function PriceForm({
                 >
                   {values.itemName || 'Add the item name'}
                 </Text>
-                {brandSize ? (
+                {fromScan ? (
+                  // After a scan, say which of brand / size is still missing.
+                  <Text style={styles.itemMeta} numberOfLines={1}>
+                    <MetaPart value={values.brand} missingLabel="Add brand" />
+                    {' · '}
+                    <MetaPart value={values.unitSize} missingLabel="Add size" />
+                  </Text>
+                ) : brandSize ? (
                   <Text style={styles.itemMeta} numberOfLines={1}>
                     {brandSize}
                   </Text>
@@ -231,6 +248,7 @@ export function PriceForm({
                   name="itemName"
                   label="Item name"
                   placeholder="Chicken Breast, Boneless"
+                  missing={needsInput('itemName')}
                   rules={{ validate: (v) => !!v.trim() || 'Add the item name' }}
                 />
                 <InlineField
@@ -238,12 +256,14 @@ export function PriceForm({
                   name="brand"
                   label="Brand"
                   placeholder="Perdue (optional)"
+                  missing={needsInput('brand')}
                 />
                 <InlineField
                   control={control}
                   name="unitSize"
                   label="Size"
                   placeholder="1.5 lb (optional)"
+                  missing={needsInput('unitSize')}
                 />
               </View>
             )}
@@ -416,12 +436,14 @@ function InlineField({
   name,
   label,
   placeholder,
+  missing,
   rules,
 }: {
   control: ReturnType<typeof useForm<FormValues>>['control'];
   name: 'itemName' | 'brand' | 'unitSize';
   label: string;
   placeholder: string;
+  missing: boolean; // OCR left it empty: orange outline
   rules?: { validate: (value: string) => true | string };
 }) {
   return (
@@ -441,12 +463,24 @@ function InlineField({
             placeholderTextColor={colors.placeholder}
             accessibilityLabel={label}
             autoCapitalize="words"
-            style={styles.inlineInput}
+            style={[styles.inlineInput, missing && styles.inlineInputMissing]}
           />
         </View>
       )}
     />
   );
+}
+
+// One half of "Perdue · 1.5 lb", or an orange "Add brand" when OCR missed it.
+function MetaPart({
+  value,
+  missingLabel,
+}: {
+  value?: string;
+  missingLabel: string;
+}) {
+  if (value) return <Text>{value}</Text>;
+  return <Text style={styles.metaMissing}>{missingLabel}</Text>;
 }
 
 function ErrorText({ message }: { message?: string }) {
@@ -591,9 +625,13 @@ const styles = StyleSheet.create({
     color: colors.text,
     backgroundColor: colors.background,
     borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
+  inlineInputMissing: { borderColor: colors.needsInput },
+  metaMissing: { color: colors.needsInput, fontFamily: fonts.bodyMedium },
   storeCard: {
     flexDirection: 'row',
     alignItems: 'center',

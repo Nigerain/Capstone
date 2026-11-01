@@ -9,9 +9,6 @@ import { ApiError, apiRequest } from './api';
 import { getAuthToken } from './auth';
 import { USE_MOCK_DATA } from './priceService';
 
-// Below this, Shernice's code says the price can't be trusted (ocr_test.py).
-export const MIN_PRICE_CONFIDENCE = 0.8;
-
 // Vision plus Shernice's parsing takes longer than a normal request.
 const SCAN_TIMEOUT_MS = 30_000;
 
@@ -41,31 +38,31 @@ export async function scanPriceTag(
   return toScanResult(response);
 }
 
-/** Cleans up the backend response so the screens get one consistent shape. */
+/**
+ * Cleans up the backend response so the screens get one consistent shape.
+ * The backend's `status` decides everything; `priceConfidence` is ignored.
+ */
 export function toScanResult(api: ApiScanResponse): ScanResult {
-  const price = parsePrice(api.price);
-  const priceConfidence = api.priceConfidence ?? 0;
-  const needsManualPrice =
-    price === null ||
-    api.needsManualPrice === true ||
-    api.status === 'low_confidence' ||
-    priceConfidence < MIN_PRICE_CONFIDENCE;
-
+  // Anything other than a clear "ok" is treated as low confidence, to be safe.
+  const status = api.status === 'ok' ? 'ok' : 'low_confidence';
   return {
+    status,
+    reason: api.reason ?? null,
     itemName: clean(api.itemName),
     brand: clean(api.brand),
     unitSize: clean(api.unitSize),
-    price,
-    priceConfidence,
-    needsManualPrice,
+    // Never prefill a price the backend wasn't sure about, even if one slips through.
+    price: status === 'ok' ? parsePrice(api.price) : null,
   };
 }
 
 /** Decides which screen comes next: the review form, or which problem to show. */
 export function problemForResult(result: ScanResult): ScanProblem | null {
-  if (!result.needsManualPrice) return null;
+  if (result.status === 'ok') return null;
+  // "Couldn't read the price" says we got the item details, so it needs some.
   const readSomething = result.itemName || result.brand || result.unitSize;
-  return readSomething ? 'price' : 'unreadable';
+  if (result.reason === 'read_failed' || !readSomething) return 'unreadable';
+  return 'price';
 }
 
 /** Turns a failed request into the message the user should see. */
@@ -96,42 +93,56 @@ function clean(value: string | null): string | null {
 
 // ---------------------------------------------------------------------------
 // Mock mode: each scan returns the next outcome in this list, so every screen
-// can be tested without the backend. Take 5 photos to see them all.
+// can be tested without the backend. Take 6 photos to see them all.
 // ---------------------------------------------------------------------------
 
 type MockOutcome = ApiScanResponse | { error: ApiError };
 
 const MOCK_OUTCOMES: MockOutcome[] = [
-  // 1. Clear read -> Confirm Details, everything filled
+  // 1. ok, everything read -> Confirm Details, all yellow
   {
+    status: 'ok',
+    reason: null,
     itemName: 'Chicken Breast, Boneless',
     brand: 'Perdue',
     unitSize: '1.5 lb',
     price: 5.29,
     priceConfidence: 0.96,
-    needsManualPrice: false,
   },
-  // 2. Item read, price blurry -> "Couldn't read the price"
+  // 2. ok, but no name or size (common, per Shernice) -> Confirm Details,
+  //    item name and size highlighted
   {
+    status: 'ok',
+    reason: null,
+    itemName: null,
+    brand: 'Barilla',
+    unitSize: null,
+    price: 1.99,
+    priceConfidence: 0.91,
+  },
+  // 3. low_confidence / low_score -> "Couldn't read the price"
+  {
+    status: 'low_confidence',
+    reason: 'low_score',
     itemName: 'Greek Yogurt, Plain',
     brand: 'Chobani',
     unitSize: '32 oz',
-    price: 5.49,
+    price: null,
     priceConfidence: 0.41,
-    needsManualPrice: true,
   },
-  // 3. Nothing readable -> "Couldn't read that tag"
+  // 4. low_confidence / read_failed -> "Couldn't read that tag"
   {
+    status: 'low_confidence',
+    reason: 'read_failed',
     itemName: null,
     brand: null,
     unitSize: null,
     price: null,
-    priceConfidence: 0,
-    needsManualPrice: true,
+    priceConfidence: null,
   },
-  // 4. No connection -> "Couldn't reach the server"
+  // 5. No connection -> "Couldn't reach the server"
   { error: new ApiError('mock: no connection', 0) },
-  // 5. Daily limit -> "You've used today's scans"
+  // 6. Daily limit -> "You've used today's scans"
   { error: new ApiError('mock: Daily OCR scan limit reached', 429) },
 ];
 
