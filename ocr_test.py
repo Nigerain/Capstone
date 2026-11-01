@@ -1,22 +1,36 @@
 import csv
 import io
+import logging
 import os
 import re
 import unicodedata
 from collections import Counter
+from functools import lru_cache
 
 import cv2
 import pytesseract
 import numpy as np
 import pillow_heif
 from PIL import Image, ImageOps
+from google.api_core.exceptions import GoogleAPIError
 from google.cloud import vision
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
+logger = logging.getLogger(__name__)
+
 pillow_heif.register_heif_opener()
 
+# A small upload can decompress to gigabytes of pixels, so oversized images are rejected.
+MAX_IMAGE_PIXELS = 64_000_000
+VISION_TIMEOUT_SECONDS = 30
 
+
+class ScanError(Exception):
+    """The photo could not be read: an unusable image or a failed OCR request."""
+
+
+@lru_cache(maxsize=1)
 def get_vision_client():
     cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     if not cred_path or not os.path.isfile(cred_path):
@@ -125,33 +139,43 @@ def run_tesseract(image_path):
     config = "--psm 12"
     return pytesseract.image_to_string(processed, config=config)
 
-def load_image_as_jpeg_bytes(image_path):
-    # phones store "which way is up" in EXIF and the re-save below drops it, so apply it first
-    # or a portrait photo reaches Vision sideways
-    with Image.open(image_path) as source:
-        img = ImageOps.exif_transpose(source).convert("RGB")
+def load_image_as_jpeg_bytes(source):
+    """Takes a path or a file object. Raises ScanError if it isn't a usable image."""
+    try:
+        with Image.open(source) as image:
+            if image.width * image.height > MAX_IMAGE_PIXELS:
+                raise ScanError("image has too many pixels")
+            # phones store "which way is up" in EXIF and the re-save below drops it, so apply
+            # it first or a portrait photo reaches Vision sideways
+            rgb = ImageOps.exif_transpose(image).convert("RGB")
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError) as error:
+        # Pillow raises a mix of these for corrupt and non-image files
+        raise ScanError("unreadable image") from error
     buffer = io.BytesIO()
-    img.save(buffer, format="JPEG")
+    rgb.save(buffer, format="JPEG")
     return buffer.getvalue()
 
 
-def _annotate(detect, image_path):
-    # the API reports failures inside the response, not as an exception
-    response = detect(image=vision.Image(content=load_image_as_jpeg_bytes(image_path)))
+def _annotate(detect, jpeg_bytes):
+    try:
+        response = detect(image=vision.Image(content=jpeg_bytes), timeout=VISION_TIMEOUT_SECONDS)
+    except GoogleAPIError as error:
+        raise ScanError("Vision request failed") from error
+    # the API reports some failures inside the response, not as an exception
     if response.error.message:
-        raise RuntimeError(response.error.message)
+        raise ScanError(response.error.message)
     return response.full_text_annotation
 
 
 def run_vision(client, image_path):
-    return _annotate(client.text_detection, image_path).text
+    return _annotate(client.text_detection, load_image_as_jpeg_bytes(image_path)).text
 
 
-def run_vision_words(client, image_path):
-    """Like run_vision, but also returns (word, confidence) pairs. Uses
-    document_text_detection because text_detection leaves every word's
-    confidence at 0.0."""
-    annotation = _annotate(client.document_text_detection, image_path)
+def run_vision_words(client, jpeg_bytes):
+    """Like run_vision, but takes JPEG bytes and also returns (word, confidence)
+    pairs. Uses document_text_detection because text_detection leaves every
+    word's confidence at 0.0."""
+    annotation = _annotate(client.document_text_detection, jpeg_bytes)
     words = [
         ("".join(symbol.text for symbol in word.symbols), word.confidence)
         for page in annotation.pages
@@ -365,22 +389,66 @@ def build_row(filename, engine, text):
     }
 
 
-def scan_price_tag(image_path, client=None):
-    """Entry point for one photo - what a backend endpoint calls. main()
-    below only batch-tests the extractors against test_images/."""
+STATUS_OK = "ok"
+STATUS_LOW_CONFIDENCE = "low_confidence"
+REASON_LOW_SCORE = "low_score"
+REASON_NO_PRICE = "no_price"
+REASON_READ_FAILED = "read_failed"
+
+
+def _failed_scan():
+    return {
+        "status": STATUS_LOW_CONFIDENCE,
+        "reason": REASON_READ_FAILED,
+        "itemName": None,
+        "brand": None,
+        "unitSize": None,
+        "price": None,
+        "priceConfidence": 0.0,
+    }
+
+
+def scan_price_bytes(image_bytes, client=None):
+    """Entry point for one photo, called by the backend with the uploaded bytes.
+
+    status "ok": the price is clear, so the app pre-fills the fields for the user to
+    confirm. status "low_confidence": the app asks for a retake or a typed price, and
+    reason says why. The price is withheld then, so an unreliable one can't be
+    pre-filled; the other fields are kept. A photo that can't be read comes back
+    with every field empty.
+    """
     if client is None:
         client = get_vision_client()
-    text, words = run_vision_words(client, image_path)
+    try:
+        jpeg_bytes = load_image_as_jpeg_bytes(io.BytesIO(image_bytes))
+        text, words = run_vision_words(client, jpeg_bytes)
+    except ScanError as error:
+        logger.warning("Price tag scan failed: %s", error)
+        return _failed_scan()
+
     price, price_source = extract_final_price(text)
     confidence = price_confidence(price, price_source, words)
+    if price is None:
+        status, reason = STATUS_LOW_CONFIDENCE, REASON_NO_PRICE
+    elif confidence < MIN_PRICE_CONFIDENCE:
+        status, reason = STATUS_LOW_CONFIDENCE, REASON_LOW_SCORE
+    else:
+        status, reason = STATUS_OK, None
     return {
+        "status": status,
+        "reason": reason,
         "itemName": extract_item_name(text),
         "brand": extract_brand(text),
         "unitSize": extract_unit_size(text),
-        "price": price,
+        "price": price if status == STATUS_OK else None,
         "priceConfidence": confidence,
-        "needsManualPrice": confidence < MIN_PRICE_CONFIDENCE,
     }
+
+
+def scan_price_tag(image_path, client=None):
+    """File-path version of scan_price_bytes, for testing against saved photos."""
+    with open(image_path, "rb") as image_file:
+        return scan_price_bytes(image_file.read(), client)
 
 
 GROUND_TRUTH_FIELDS = ["correct", "notes", "name_correct", "brand_correct", "size_correct"]
