@@ -65,7 +65,7 @@ export function CameraScreen({ navigation }: Props) {
       const image = await prepareScanImage(picture.uri, photoSize, crop);
       setPhoto({ ...image, source: 'camera' });
       setTorchOn(false);
-      navigation.navigate('ScanReview');
+      navigation.navigate('ScanProcessing');
     } catch {
       Alert.alert('Couldn’t take the photo', 'Please try again.');
     } finally {
@@ -90,7 +90,7 @@ export function CameraScreen({ navigation }: Props) {
         height: asset.height,
       });
       setPhoto({ ...image, source: 'library' });
-      navigation.navigate('ScanReview');
+      navigation.navigate('ScanProcessing');
     } catch {
       Alert.alert('Couldn’t open that photo', 'Please try a different one.');
     } finally {

@@ -24,6 +24,14 @@ export const colors = {
   cameraControl: '#211F1E', // round X / flash buttons
   scanFrame: '#F7EF54', // yellow frame corners
   scanTitle: '#FEFBFB', // "Scan Tag"
+  onDarkMuted: '#C7C2BF', // "Finding the price, item and size"
+  // Confirm Details screen
+  scanBanner: '#FBF0D6', // "Scanned from your photo…" banner
+  scanBannerText: '#8A6A1F',
+  scanned: '#F3C33C', // outline + dots on fields OCR filled in
+  scannedBadge: '#949352', // "SCANNED" label
+  needsInput: '#D98A2B', // outline on fields OCR couldn't fill (not in Figma yet)
+  change: '#277C3E', // "Change" link
 } as const;
 
 export const fonts = {

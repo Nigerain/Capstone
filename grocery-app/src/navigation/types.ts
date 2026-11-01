@@ -1,5 +1,7 @@
 import type { NavigatorScreenParams } from '@react-navigation/native';
 
+import type { ScanProblem } from '../types/scan';
+
 export type TabParamList = {
   Home: undefined;
   Search: undefined;
@@ -12,7 +14,10 @@ export type RootStackParamList = {
   // Add a Price flow, opened from the "+" in the tab bar.
   AddPrice: undefined;
   ScanPrice: undefined;
-  ScanReview: undefined; // reads the photo from useScanStore
+  // The scan screens below read the photo and OCR result from useScanStore.
+  ScanProcessing: undefined;
+  ScanProblem: { problem: ScanProblem };
+  ScanConfirm: undefined;
   ManualEntry: undefined;
   ProductDetail: { itemId: string };
   Signup: undefined;
@@ -27,4 +32,3 @@ declare global {
     interface RootParamList extends RootStackParamList {}
   }
 }
-

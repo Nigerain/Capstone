@@ -15,32 +15,39 @@ export class ApiError extends Error {
 
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
-  body?: unknown;
+  body?: unknown; // JSON, or FormData for file uploads
   headers?: Record<string, string>;
   token?: string | null; // Firebase ID token, for endpoints that need sign-in
+  timeoutMs?: number; // defaults to TIMEOUT_MS
+  signal?: AbortSignal; // lets the caller cancel, e.g. a Cancel button
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, headers = {}, token } = options;
+  const { method = 'GET', body, headers = {}, token, timeoutMs = TIMEOUT_MS, signal } = options;
 
   if (!BASE_URL) {
     throw new Error('EXPO_PUBLIC_API_URL is not set. Add it to your .env file.');
   }
 
-  // AbortController lets us cancel the request if it takes too long.
+  // AbortController lets us cancel the request if it takes too long,
+  // or if the caller's signal fires.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  signal?.addEventListener('abort', () => controller.abort());
+
+  // FormData sets its own Content-Type (with the multipart boundary), so leave it out.
+  const isForm = body instanceof FormData;
 
   try {
     const response = await fetch(`${BASE_URL}${path}`, {
       method,
       headers: {
         Accept: 'application/json',
-        'Content-Type': 'application/json',
+        ...(isForm ? {} : { 'Content-Type': 'application/json' }),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...headers, // custom headers last, so they can override the defaults
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
       signal: controller.signal,
     });
 
@@ -57,7 +64,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   } catch (error) {
     if (error instanceof ApiError) throw error;
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new ApiError(`${method} ${path} timed out after ${TIMEOUT_MS / 1000}s`, 0);
+      throw new ApiError(`${method} ${path} timed out after ${timeoutMs / 1000}s`, 0);
     }
     // fetch itself failed: wrong address, backend not running, or no network
     throw new ApiError(`${method} ${path} could not reach the server: ${String(error)}`, 0);

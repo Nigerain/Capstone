@@ -4,7 +4,9 @@ import { AddPriceScreen } from '../screens/AddPriceScreen';
 import { CameraScreen } from '../screens/CameraScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
-import { ScanReviewScreen } from '../screens/ScanReviewScreen';
+import { ScanConfirmScreen } from '../screens/ScanConfirmScreen';
+import { ScanProblemScreen } from '../screens/ScanProblemScreen';
+import { ScanProcessingScreen } from '../screens/ScanProcessingScreen';
 import { SignupScreen } from '../screens/SignupScreen';
 import { SubmitPriceScreen } from '../screens/SubmitPriceScreen';
 import { colors } from '../theme';
@@ -34,9 +36,20 @@ export function RootNavigator() {
         component={CameraScreen}
         options={{ presentation: 'modal' }}
       />
+      {/* Processing swaps itself for Problem or Confirm, so Back skips the spinner. */}
       <Stack.Screen
-        name="ScanReview"
-        component={ScanReviewScreen}
+        name="ScanProcessing"
+        component={ScanProcessingScreen}
+        options={{ presentation: 'modal', gestureEnabled: false }}
+      />
+      <Stack.Screen
+        name="ScanProblem"
+        component={ScanProblemScreen}
+        options={{ presentation: 'modal' }}
+      />
+      <Stack.Screen
+        name="ScanConfirm"
+        component={ScanConfirmScreen}
         options={{ presentation: 'modal' }}
       />
       <Stack.Screen
