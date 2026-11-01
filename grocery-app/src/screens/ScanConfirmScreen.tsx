@@ -53,20 +53,18 @@ function toFormValues(result: ScanResult | null): FormValues {
   };
 }
 
-const EMPTY = toFormValues(null);
-
 // Built from the Figma frame "Confirmed Scan Screen".
 // After a scan: fields OCR filled get a yellow outline and "SCANNED"; fields it
-// couldn't fill get an orange outline. Opened from "Enter manually", it's the
-// same form, empty.
+// couldn't fill get an orange outline. Every field is editable right here, so
+// there's no separate "enter manually" path. Opened from "Enter manually" on
+// the Couldn't Read screen, it's the same form, empty.
 export function ScanConfirmScreen({ navigation }: Props) {
   const photo = useScanStore((s) => s.photo);
   const result = useScanStore((s) => s.result);
-  const setResult = useScanStore((s) => s.setResult);
   const clearScan = useScanStore((s) => s.clear);
 
   // Snapshot of what OCR read, used to label fields "SCANNED".
-  const [scanned, setScanned] = useState(() => toFormValues(result));
+  const [scanned] = useState(() => toFormValues(result));
   const fromScan = result !== null;
 
   const [store, setStore] = useState<GuessedStore | null>(null);
@@ -77,7 +75,6 @@ export function ScanConfirmScreen({ navigation }: Props) {
   const {
     control,
     handleSubmit,
-    reset,
     setFocus,
     formState: { errors, isSubmitting },
   } = useForm<FormValues>({ defaultValues: toFormValues(result) });
@@ -90,14 +87,6 @@ export function ScanConfirmScreen({ navigation }: Props) {
     fromScan && scanned[field] !== '' && values[field] === scanned[field];
   const needsInput = (field: 'itemName' | 'price') =>
     fromScan && !values[field];
-
-  // "Couldn't read it right? Enter manually": drop everything OCR read.
-  const startOver = () => {
-    setResult(null);
-    setScanned(EMPTY);
-    reset(EMPTY);
-    setEditingItem(true);
-  };
 
   // Jump straight to the empty price when that's the only thing missing.
   useEffect(() => {
@@ -380,18 +369,6 @@ export function ScanConfirmScreen({ navigation }: Props) {
               </Text>
             )}
           </Pressable>
-          {fromScan && (
-            <Pressable
-              onPress={startOver}
-              accessibilityRole="button"
-              hitSlop={12}
-              style={({ pressed }) => [styles.link, pressed && styles.pressed]}
-            >
-              <Text style={styles.linkText}>
-                Couldn’t read it right? Enter manually
-              </Text>
-            </Pressable>
-          )}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -653,7 +630,6 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.md,
     alignItems: 'center',
-    gap: spacing.xs,
   },
   submit: {
     alignSelf: 'stretch',
@@ -667,12 +643,6 @@ const styles = StyleSheet.create({
     fontFamily: fonts.bodySemibold,
     fontSize: 18,
     color: colors.field,
-  },
-  link: { paddingVertical: spacing.sm },
-  linkText: {
-    fontFamily: fonts.bodySemibold,
-    fontSize: 12,
-    color: colors.textMuted,
   },
   pressed: { opacity: 0.7 },
 });
