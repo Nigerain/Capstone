@@ -87,11 +87,15 @@ export function ScanProblemScreen({ navigation, route }: Props) {
   const copy = COPY[problem];
   const setResult = useScanStore((s) => s.setResult);
 
-  // Opens Confirm Details. For "price" it keeps the item details OCR read;
-  // otherwise the form starts empty.
+  // "price": Confirm Details, keeping the item details OCR read.
+  // Anything else: the empty manual entry form.
   const enterManually = () => {
-    if (problem !== 'price') setResult(null);
-    navigation.navigate('ScanConfirm');
+    if (problem === 'price') {
+      navigation.navigate('ScanConfirm');
+    } else {
+      setResult(null);
+      navigation.navigate('ManualEntry');
+    }
   };
 
   const onPrimary = () => {
