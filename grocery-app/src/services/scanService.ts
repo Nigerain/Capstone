@@ -7,7 +7,12 @@ import type {
 } from '../types/scan';
 import { ApiError, apiRequest } from './api';
 import { getAuthToken } from './auth';
-import { USE_MOCK_DATA } from './priceService';
+
+// Scanning has its own switch, separate from EXPO_PUBLIC_USE_MOCK_DATA, so
+// search can use the real backend while the OCR endpoint is still being built.
+// Mock unless .env explicitly says false, like the other switch.
+// Changing it needs a restart with a cleared cache: npx expo start -c
+export const USE_MOCK_OCR = process.env.EXPO_PUBLIC_USE_MOCK_OCR !== 'false';
 
 // Vision plus Shernice's parsing takes longer than a normal request.
 const SCAN_TIMEOUT_MS = 30_000;
@@ -17,7 +22,7 @@ export async function scanPriceTag(
   photo: ScanPhoto,
   signal?: AbortSignal
 ): Promise<ScanResult> {
-  if (USE_MOCK_DATA) return mockScan(signal);
+  if (USE_MOCK_OCR) return mockScan(signal);
 
   const form = new FormData();
   // React Native uploads a local file from this { uri, name, type } shape.
