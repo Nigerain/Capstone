@@ -21,6 +21,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { TabParamList } from '../navigation/types';
+import { canAddPrices } from '../store/useAuthStore';
 import { useTabBarStore } from '../store/useTabBarStore';
 import { colors, spacing } from '../theme';
 
@@ -133,7 +134,12 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
       {renderTab(1)}
 
       <Pressable
-        onPress={() => navigation.navigate('AddPrice')}
+        onPress={() =>
+          // Signed out: Sign up first (like the Profile icon), then Add a Price.
+          canAddPrices()
+            ? navigation.navigate('AddPrice')
+            : navigation.navigate('Signup', { then: 'AddPrice' })
+        }
         accessibilityRole="button"
         accessibilityLabel="Add a price"
         style={styles.addButton}

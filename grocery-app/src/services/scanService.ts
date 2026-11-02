@@ -74,6 +74,7 @@ export function problemForResult(result: ScanResult): ScanProblem | null {
 export function problemForError(error: unknown): ScanProblem {
   if (error instanceof ApiError) {
     if (error.status === 429) return 'limit';
+    if (error.status === 401 || error.status === 403) return 'auth';
     if (error.status === 0) return 'network';
   }
   return 'server';

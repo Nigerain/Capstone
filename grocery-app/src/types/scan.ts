@@ -33,7 +33,8 @@ export type ScanProblem =
   | 'price' // item details came back, the price didn't (low_score / no_price)
   | 'network' // no internet, timeout, or backend down
   | 'server' // the backend or Vision returned an error
-  | 'limit'; // daily scan limit reached (429)
+  | 'limit' // daily scan limit reached (429)
+  | 'auth'; // not signed in, or the sign-in expired (401 / 403)
 
 // A store the user is probably standing in.
 export type GuessedStore = { name: string; distanceMi: number };

@@ -7,6 +7,13 @@ export async function getAuthToken(): Promise<string | null> {
   return process.env.EXPO_PUBLIC_DEV_ID_TOKEN ?? null;
 }
 
+// TEMPORARY: on the real backend, a dev token counts as being signed in,
+// since real sign up / log in isn't connected to Firebase yet. In mock mode
+// it doesn't, so the sign-in gate can still be tested with mock sign up.
+export function signedInWithDevToken(): boolean {
+  return !USE_MOCK_DATA && !!process.env.EXPO_PUBLIC_DEV_ID_TOKEN;
+}
+
 export type AuthUser = {
   uid: string; // Firebase UID (matches users.id in the database)
   firstName: string;

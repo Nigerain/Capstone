@@ -18,8 +18,9 @@ type Copy = {
   title: string;
   message: string;
   tips: boolean;
-  primary: 'retake' | 'retry' | 'manual';
+  primary: 'retake' | 'retry' | 'manual' | 'signin';
   link: string | null; // the small text link under the button
+  devHint?: string; // extra line shown only in development builds
 };
 
 // "unreadable" is the Figma frame "Scan – Couldn't Read". The others reuse its
@@ -68,12 +69,26 @@ const COPY: Record<ScanProblem, Copy> = {
     primary: 'manual',
     link: null,
   },
+  auth: {
+    icon: 'lock',
+    title: 'Sign in to keep scanning',
+    message:
+      'You need to be signed in to add prices. Sign in and you’ll be right back here.',
+    tips: false,
+    primary: 'signin',
+    link: null,
+    // Until Firebase Auth is connected, this almost always means the dev token
+    // in .env expired (they last about an hour).
+    devHint:
+      'Dev: your test token probably expired. Run npm run dev-token, then restart with npx expo start -c.',
+  },
 };
 
 const PRIMARY_LABEL = {
   retake: 'Retake Photo',
   retry: 'Try Again',
   manual: 'Enter Manually',
+  signin: 'Sign In',
 } as const;
 
 const TIPS = [
@@ -102,6 +117,8 @@ export function ScanProblemScreen({ navigation, route }: Props) {
     if (copy.primary === 'retake')
       navigation.goBack(); // back to the camera
     else if (copy.primary === 'retry') navigation.replace('ScanProcessing');
+    else if (copy.primary === 'signin')
+      navigation.navigate('Login', { then: 'AddPrice' });
     else enterManually();
   };
 
@@ -132,6 +149,9 @@ export function ScanProblemScreen({ navigation, route }: Props) {
         </View>
         <Text style={styles.title}>{copy.title}</Text>
         <Text style={styles.message}>{copy.message}</Text>
+        {__DEV__ && copy.devHint ? (
+          <Text style={styles.devHint}>{copy.devHint}</Text>
+        ) : null}
 
         {copy.tips && (
           <View style={styles.tips}>
@@ -221,6 +241,13 @@ const styles = StyleSheet.create({
     color: colors.textBody,
     textAlign: 'center',
     maxWidth: 290,
+  },
+  devHint: {
+    fontFamily: fonts.body,
+    fontSize: 12,
+    color: colors.error,
+    textAlign: 'center',
+    maxWidth: 300,
   },
   tips: {
     alignSelf: 'stretch',

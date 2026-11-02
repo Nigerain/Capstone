@@ -33,7 +33,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Signup'>;
 const CONTENT_WIDTH = 312;
 const MIN_PASSWORD = 8;
 
-export function SignupScreen({ navigation }: Props) {
+export function SignupScreen({ navigation, route }: Props) {
   const setUser = useAuthStore((s) => s.setUser);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -61,8 +61,14 @@ export function SignupScreen({ navigation }: Props) {
         email: values.email.trim(),
       });
       setUser(user);
-      // Back to the tabs, on the Profile tab they were trying to open.
-      navigation.navigate('Tabs', { screen: 'Profile' });
+      if (route.params?.then === 'AddPrice') {
+        // They tapped "+": close Sign up, then open Add a Price.
+        navigation.popToTop();
+        navigation.navigate('AddPrice');
+      } else {
+        // Back to the tabs, on the Profile tab they were trying to open.
+        navigation.navigate('Tabs', { screen: 'Profile' });
+      }
     } catch (error) {
       const message =
         error instanceof AuthError
@@ -251,7 +257,7 @@ export function SignupScreen({ navigation }: Props) {
           <Pressable
             // replace, not navigate: switching between Sign up and Log in
             // shouldn't pile screens onto the back stack.
-            onPress={() => navigation.replace('Login')}
+            onPress={() => navigation.replace('Login', route.params)}
             hitSlop={8}
             accessibilityRole="link"
             style={styles.loginLink}
