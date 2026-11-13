@@ -1,4 +1,5 @@
 import { Feather } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { useEffect, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import {
@@ -19,10 +20,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { guessStore } from '../services/scanService';
+import { guessStore } from '../services/storeService';
+import { usePickerStore } from '../store/usePickerStore';
 import type { ScanPhoto } from '../store/useScanStore';
 import { colors, fonts, spacing, typography } from '../theme';
-import type { GuessedStore, ScanResult } from '../types/scan';
+import type { ApiCreatePrice } from '../types/api';
+import type { ScanResult } from '../types/scan';
 import { formatDistance } from '../utils/format';
 
 type Props = {
@@ -75,10 +78,28 @@ export function PriceForm({
   const [scanned] = useState(() => toFormValues(result));
   const fromScan = result !== null;
 
-  const [store, setStore] = useState<GuessedStore | null>(null);
+  const navigation = useNavigation();
+
+  // Store chosen on the Store Picker (see usePickerStore).
+  const store = usePickerStore((s) => s.store);
+  const storeSource = usePickerStore((s) => s.storeSource);
+  const [storeMissing, setStoreMissing] = useState(false);
+
+  // Start with the closest store, unless one is already chosen.
   useEffect(() => {
-    guessStore().then(setStore);
+    let cancelled = false;
+    guessStore().then((guess) => {
+      const { store: chosen, setStore } = usePickerStore.getState();
+      if (!cancelled && guess && !chosen) setStore(guess, 'guess');
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  // Leaving the form (submit, X, back) forgets the store, so the next price
+  // starts fresh. The Store Picker opens on top, so it doesn't unmount the form.
+  useEffect(() => () => usePickerStore.getState().clear(), []);
 
   const {
     control,
@@ -106,6 +127,11 @@ export function PriceForm({
     () => !result?.itemName || !result.brand || !result.unitSize
   );
 
+  const openStorePicker = () => {
+    setStoreMissing(false);
+    navigation.navigate('StorePicker');
+  };
+
   // Jump straight to the empty price when that's the only thing missing.
   useEffect(() => {
     if (result?.itemName && !scanned.price) {
@@ -114,9 +140,30 @@ export function PriceForm({
     }
   }, [result, scanned.price, setFocus]);
 
-  const onSubmit = handleSubmit(async () => {
-    // TODO(backend): POST /api/v1/prices once the form has an item id and a
-    // store id (needs the Item Picker and Store Picker).
+  const onSubmit = handleSubmit(async (form) => {
+    if (!store) {
+      setStoreMissing(true);
+      return;
+    }
+
+    // TODO(backend): the item is free text for now. The backend should
+    // fuzzy-match { itemName, brand, unitSize } to an existing item (or create
+    // one) and return its id. Then POST /api/v1/prices with this body.
+    // Mock store ids ("store-key-food") need replacing with real ones first.
+    const payload: Omit<ApiCreatePrice, 'itemId'> & {
+      item: Pick<FormValues, 'itemName' | 'brand' | 'unitSize'>;
+    } = {
+      item: {
+        itemName: form.itemName,
+        brand: form.brand,
+        unitSize: form.unitSize,
+      },
+      storeId: store.id,
+      price: Number(form.price),
+      isPublic: form.sharePublicly,
+    };
+    if (__DEV__) console.log('[PriceForm] would submit', payload);
+
     await new Promise((resolve) => setTimeout(resolve, 600));
     Alert.alert(
       'Price ready',
@@ -273,35 +320,32 @@ export function PriceForm({
           {/* Store */}
           <FieldLabel label="Store" />
           <Pressable
-            // TODO: open the Store Picker screen (Figma "Store Picker") once it's built.
-            onPress={() =>
-              Alert.alert(
-                'Coming soon',
-                'Picking a different store isn’t built yet.'
-              )
-            }
+            onPress={openStorePicker}
             accessibilityRole="button"
             accessibilityLabel={
               store
-                ? `Store: ${store.name}, ${formatDistance(store.distanceMi)}. Change store`
+                ? `Store: ${storeLine(store)}. Change store`
                 : 'Choose a store'
             }
             style={({ pressed }) => [
               styles.card,
               styles.storeCard,
+              storeMissing && styles.cardError,
               pressed && styles.pressed,
             ]}
           >
             <Feather name="map-pin" size={15} color={colors.text} />
-            <Text style={styles.storeText} numberOfLines={1}>
-              {store
-                ? `${store.name} · ${formatDistance(store.distanceMi)}`
-                : 'Choose a store'}
+            <Text
+              style={[styles.storeText, !store && styles.placeholder]}
+              numberOfLines={1}
+            >
+              {store ? storeLine(store) : 'Choose a store'}
             </Text>
             <Feather name="chevron-right" size={15} color={colors.text} />
           </Pressable>
+          {storeMissing && <ErrorText message="Choose the store" />}
           {/* Only after a scan, per Figma; the manual frame has no hint. */}
-          {store && fromScan && (
+          {store && fromScan && storeSource === 'guess' && (
             <Text style={styles.hint}>
               Guessed from your location — change if this isn’t right.
             </Text>
@@ -403,6 +447,13 @@ export function PriceForm({
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+// "Key Food · 0.4 mi", or just "Key Food" when the distance is unknown.
+function storeLine(store: { name: string; distanceMi?: number }): string {
+  return store.distanceMi != null
+    ? `${store.name} · ${formatDistance(store.distanceMi)}`
+    : store.name;
 }
 
 function outline(scanned: boolean, missing: boolean): StyleProp<ViewStyle> {

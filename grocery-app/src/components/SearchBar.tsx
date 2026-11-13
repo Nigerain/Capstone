@@ -10,6 +10,7 @@ type Props = {
   onSubmit?: () => void;
   placeholder?: string;
   autoFocus?: boolean;
+  accessibilityLabel?: string;
 };
 
 export function SearchBar({
@@ -18,6 +19,7 @@ export function SearchBar({
   onSubmit,
   placeholder = 'Search groceries…',
   autoFocus = false,
+  accessibilityLabel = 'Search groceries',
 }: Props) {
   const [focused, setFocused] = useState(false);
 
@@ -38,7 +40,7 @@ export function SearchBar({
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         selectionColor={colors.link}
-        accessibilityLabel="Search groceries"
+        accessibilityLabel={accessibilityLabel}
         style={styles.input}
       />
 

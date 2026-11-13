@@ -35,6 +35,3 @@ export type ScanProblem =
   | 'server' // the backend or Vision returned an error
   | 'limit' // daily scan limit reached (429)
   | 'auth'; // not signed in, or the sign-in expired (401 / 403)
-
-// A store the user is probably standing in.
-export type GuessedStore = { name: string; distanceMi: number };

@@ -29,6 +29,14 @@ export interface Item {
   prices: Price[];
 }
 
+// A store the user can pick when adding a price.
+export interface Store {
+  id: string;
+  name: string;
+  distanceMi?: number; // missing until we know where the user is
+  closesAt?: string; // "10 PM"; the backend doesn't send hours yet
+}
+
 // A store's price for an item that went down since it was last reported.
 export interface PriceDrop {
   item: Item;

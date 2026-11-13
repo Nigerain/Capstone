@@ -1,7 +1,6 @@
 import type { ScanPhoto } from '../store/useScanStore';
 import type {
   ApiScanResponse,
-  GuessedStore,
   ScanProblem,
   ScanResult,
 } from '../types/scan';
@@ -78,11 +77,6 @@ export function problemForError(error: unknown): ScanProblem {
     if (error.status === 0) return 'network';
   }
   return 'server';
-}
-
-// TODO(location): use the phone's location and the stores table.
-export async function guessStore(): Promise<GuessedStore | null> {
-  return { name: 'Key Food', distanceMi: 0.4 };
 }
 
 function parsePrice(value: number | string | null): number | null {
