@@ -62,7 +62,6 @@ function toFormValues(result: ScanResult | null): FormValues {
   };
 }
 
-// The price form shared by two Figma frames:
 // - "Confirmed Scan Screen" (scan given): fields OCR filled get a yellow outline
 //   and "SCANNED"; fields it couldn't fill get an orange outline.
 // - "Submission (Manual) Screen" (scan = null): the same fields, empty.
@@ -112,7 +111,6 @@ export function PriceForm({
 
   // A field is "scanned" while it still holds exactly what OCR read.
   // After a scan, any of the four OCR fields left empty is highlighted
-  // (Shernice: the name is often missing even when the price is fine).
   type OcrField = 'itemName' | 'brand' | 'unitSize' | 'price';
   const isScanned = (field: OcrField) =>
     fromScan && scanned[field] !== '' && values[field] === scanned[field];
@@ -223,7 +221,7 @@ export function PriceForm({
           )}
 
           <Text style={fromScan ? styles.heading : styles.manualHeading}>
-            {fromScan ? 'Almost done' : 'Support others save nearby'}
+            {fromScan ? 'Almost done' : 'Help others save nearby'}
           </Text>
           <Text style={fromScan ? styles.subheading : styles.manualSubheading}>
             {fromScan
@@ -408,17 +406,20 @@ export function PriceForm({
             render={({ field }) => (
               <View style={[styles.card, styles.shareCard]}>
                 <View style={styles.shareText}>
-                  <Text style={styles.shareTitle}>Share Publicly</Text>
+                  <View style={styles.shareTitleRow}>
+                    <Text style={styles.shareTitle}>Share Publicly</Text>
+                    <Switch
+                      style={styles.shareSwitch}
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      accessibilityLabel="Share publicly"
+                      trackColor={{ true: '#34C759', false: colors.card }}
+                    />
+                  </View>
                   <Text style={styles.shareSubtitle}>
                     Visible to everyone nearby
                   </Text>
                 </View>
-                <Switch
-                  value={field.value}
-                  onValueChange={field.onChange}
-                  accessibilityLabel="Share publicly"
-                  trackColor={{ true: colors.positive, false: colors.card }}
-                />
               </View>
             )}
           />
@@ -717,13 +718,17 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   shareCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
     minHeight: 54,
     paddingHorizontal: spacing.md,
     marginTop: spacing.lg,
   },
   shareText: { flex: 1 },
+  shareTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  shareSwitch: { alignSelf: 'center' },
   shareTitle: {
     fontFamily: fonts.headingSemibold,
     fontSize: 15,
