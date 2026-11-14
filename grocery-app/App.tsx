@@ -3,12 +3,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SplashView } from './src/components/SplashView';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { shouldRetry } from './src/services/api';
+import { watchAuthUser } from './src/services/auth';
+import { useAuthStore } from './src/store/useAuthStore';
 import { colors } from './src/theme';
 import { fontAssets } from './src/theme/fonts';
 
@@ -35,6 +37,12 @@ const navTheme: Theme = {
 };
 
 export default function App() {
+  // Keep useAuthStore in sync with Firebase: restores a saved session when the
+  // app opens, and clears the user on log out or when the session ends.
+  useEffect(
+    () => watchAuthUser((user) => useAuthStore.getState().setUser(user)),
+    []
+  );
 
   const [fontsLoaded, fontError] = useFonts(fontAssets);
   const [splashDone, setSplashDone] = useState(false);

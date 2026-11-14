@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 
-import { signedInWithDevToken, type AuthUser } from '../services/auth';
+import type { AuthUser } from '../services/auth';
 
 // Who is signed in, or null when signed out.
-// In memory only for now: signing up again is needed after the app restarts.
-// Once Firebase Auth is connected, Firebase remembers the session and this mirrors it.
+// With Firebase (EXPO_PUBLIC_USE_MOCK_DATA=false), Firebase remembers the
+// session and App.tsx copies it in here through watchAuthUser.
+// In mock mode it's in memory only: sign in again after the app restarts.
 type AuthState = {
   user: AuthUser | null;
   setUser: (user: AuthUser | null) => void;
@@ -18,5 +19,5 @@ export const useAuthStore = create<AuthState>()((set) => ({
 // Scanning and submitting prices need sign-in: the backend rejects both
 // without a token (401).
 export function canAddPrices(): boolean {
-  return useAuthStore.getState().user !== null || signedInWithDevToken();
+  return useAuthStore.getState().user !== null;
 }

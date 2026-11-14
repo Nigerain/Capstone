@@ -25,7 +25,12 @@ import {
 } from '../components/AuthParts';
 import { FormField } from '../components/FormField';
 import type { RootStackParamList } from '../navigation/types';
-import { AuthError, logIn, type LogInInput } from '../services/auth';
+import {
+  AuthError,
+  logIn,
+  resetPassword,
+  type LogInInput,
+} from '../services/auth';
 import { useAuthStore } from '../store/useAuthStore';
 import { colors, fonts, spacing, typography } from '../theme';
 
@@ -44,6 +49,7 @@ export function LoginScreen({ navigation, route }: Props) {
     control,
     handleSubmit,
     setError,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<LogInInput>({
     defaultValues: { email: '', password: '' },
@@ -71,12 +77,33 @@ export function LoginScreen({ navigation, route }: Props) {
     }
   });
 
-  // TODO(firebase): sendPasswordResetEmail once Firebase Auth is connected.
-  const showForgotPassword = () =>
-    Alert.alert(
-      'Coming soon',
-      'Password reset isn’t set up yet. Ask the team to reset it for now.'
-    );
+  // Uses the email typed above, so there's no extra screen to build.
+  const showForgotPassword = async () => {
+    const email = getValues('email').trim();
+    if (!EMAIL_PATTERN.test(email)) {
+      setError(
+        'email',
+        { message: 'Enter your email above, then tap Forgot password.' },
+        { shouldFocus: true }
+      );
+      return;
+    }
+    try {
+      await resetPassword(email);
+      // Same message whether or not the account exists.
+      Alert.alert(
+        'Check your email',
+        `If ${email} has an account, we sent a link to reset your password.`
+      );
+    } catch (error) {
+      Alert.alert(
+        'Couldn’t send the email',
+        error instanceof AuthError
+          ? error.message
+          : 'Something went wrong. Please try again.'
+      );
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
