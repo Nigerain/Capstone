@@ -57,6 +57,7 @@ export class AuthError extends Error {
 // Turns Firebase's error codes into messages people can act on.
 // Codes: https://firebase.google.com/docs/reference/js/auth#autherrorcodes
 function toAuthError(error: unknown): AuthError {
+  console.warn('Auth error:', error);
   if (!(error instanceof FirebaseError)) {
     return new AuthError('Something went wrong. Please try again.');
   }
@@ -65,6 +66,10 @@ function toAuthError(error: unknown): AuthError {
       return new AuthError('An account with this email already exists.', 'email');
     case 'auth/invalid-email':
       return new AuthError('Enter a valid email, like you@email.com.', 'email');
+    case 'auth/password-does-not-meet-requirements':
+      return new AuthError(
+          'Use at least 10 characters, with an uppercase letter, a lowercase letter, and a symbol.',
+          'password');
     case 'auth/weak-password':
       return new AuthError('Choose a stronger password.', 'password');
     // Same message for a bad email or a bad password, so the app never

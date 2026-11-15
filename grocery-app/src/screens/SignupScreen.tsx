@@ -31,7 +31,8 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Signup'>;
 
 // Built from the Figma frame "Signup Screen".
 const CONTENT_WIDTH = 312;
-const MIN_PASSWORD = 8;
+const MIN_PASSWORD = 10;
+const PASSWORD_RULES = `Use at least ${MIN_PASSWORD} characters, with an uppercase letter, a lowercase letter, and a symbol.`;
 
 export function SignupScreen({ navigation, route }: Props) {
   const setUser = useAuthStore((s) => s.setUser);
@@ -195,11 +196,12 @@ export function SignupScreen({ navigation, route }: Props) {
                 control={control}
                 name="password"
                 rules={{
-                  minLength: {
-                    value: MIN_PASSWORD,
-                    message: `Use at least ${MIN_PASSWORD} characters.`,
-                  },
-                  required: `Use at least ${MIN_PASSWORD} characters.`,
+                  validate: (v) =>
+                    (v.length >= MIN_PASSWORD &&
+                      /[a-z]/.test(v) &&
+                      /[A-Z]/.test(v) &&
+                      /[^A-Za-z0-9]/.test(v)) ||
+                    PASSWORD_RULES,
                 }}
                 render={({ field: { onChange, onBlur, value } }) => (
                   <FormField
