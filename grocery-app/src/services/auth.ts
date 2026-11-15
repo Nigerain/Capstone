@@ -34,6 +34,7 @@ export type AuthUser = {
   firstName: string;
   lastName: string;
   email: string;
+  memberSince: string | null; // when the account was created (ISO date), for "Member since Oct 2026"
 };
 
 export type SignUpInput = {
@@ -97,7 +98,16 @@ function toAuthUser(user: User): AuthUser {
     firstName: firstName || nameFromEmail(user.email ?? ''),
     lastName: rest.join(' '),
     email: user.email ?? '',
+    memberSince: toIsoDate(user.metadata.creationTime),
   };
+}
+
+// Firebase gives the creation time as a date string like
+// "Sat, 14 Nov 2026 23:46:10 GMT"; turn it into an ISO date, or null if missing.
+function toIsoDate(value: string | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 // The backend requires a username, but the sign up screen doesn't ask for one,
@@ -123,6 +133,7 @@ export async function signUp(input: SignUpInput): Promise<AuthUser> {
       firstName: input.firstName,
       lastName: input.lastName,
       email: input.email,
+      memberSince: new Date().toISOString(),
     };
   }
 
@@ -169,6 +180,7 @@ export async function signUp(input: SignUpInput): Promise<AuthUser> {
     firstName: input.firstName,
     lastName: input.lastName,
     email: user.email ?? input.email,
+    memberSince: toIsoDate(user.metadata.creationTime),
   };
 }
 
@@ -195,6 +207,7 @@ export async function logIn(input: LogInInput): Promise<AuthUser> {
       firstName: nameFromEmail(input.email),
       lastName: '',
       email: input.email,
+      memberSince: '2026-10-01T00:00:00.000Z', // matches the Figma example
     };
   }
 

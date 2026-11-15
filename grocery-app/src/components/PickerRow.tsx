@@ -9,8 +9,9 @@ type Props = {
   subtitle?: string | null;
   selected: boolean;
   onPress: () => void;
-  // Store rows show a map pin in a circle; item rows show a product thumbnail.
-  lead: { kind: 'store' } | { kind: 'thumb'; imageUri?: string };
+  // Store rows show a map pin in a circle; item rows show a product thumbnail;
+  // plain option rows (like the search radius) show nothing.
+  lead: { kind: 'store' } | { kind: 'thumb'; imageUri?: string } | { kind: 'none' };
 };
 
 // Figma component "Picker Row": one selectable row on the Store Picker and
@@ -32,7 +33,7 @@ export function PickerRow({ title, subtitle, selected, onPress, lead }: Props) {
         <View style={styles.storeLead}>
           <Feather name="map-pin" size={20} color={colors.text} />
         </View>
-      ) : lead.imageUri ? (
+      ) : lead.kind === 'none' ? null : lead.imageUri ? (
         <Image source={{ uri: lead.imageUri }} style={styles.thumb} />
       ) : (
         <View style={styles.thumb} />
