@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
 from app.api.auth import get_current_user
 
-from google.cloud import vision
-from google.api_core.exceptions import GoogleAPICallError
+from app.service.ocr_scanner import scan_price_bytes
+
+from app.schemas.ocr import OCRScanResponse
+
 
 from datetime import date
 from collections import defaultdict
@@ -15,7 +17,7 @@ MAX_IMAGE_SIZE = 5 * 1024 * 1024  # 5 MB
 scan_counts = defaultdict(lambda: {"date": date.today(), "count": 0})
 
 
-@router.post("/scan")
+@router.post("/scan", response_model=OCRScanResponse)
 async def scan_price(
     image: UploadFile = File(...), current_user: dict = Depends(get_current_user)
 ):
@@ -24,8 +26,20 @@ async def scan_price(
     Gooogle Vision processing will be added here
     """
 
-    if not image.content_type or not image.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Uploaded file must be an image")
+    ALLOWED_IMAGE_TYPES = {
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "image/gif",
+        "image/bmp",
+        "image/tiff",
+    }
+    if image.content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported image format. Please upload a JPG, PNG, WEBP, GIF, BMP, or TIFF image.",
+        )
+
     image_bytes = await image.read(MAX_IMAGE_SIZE + 1)
 
     if not image_bytes:
@@ -36,7 +50,6 @@ async def scan_price(
 
     user_id = current_user["uid"]
     user_scans = scan_counts[user_id]
-    today = date.today()
 
     # Reset count when a new day starts
     if user_scans["date"] != date.today():
@@ -51,31 +64,24 @@ async def scan_price(
         )
 
     try:
-        client = vision.ImageAnnotatorClient()
-        vision_image = vision.Image(content=image_bytes)
+        result = scan_price_bytes(image_bytes)
 
-        response = client.text_detection(image=vision_image)
+    except Exception as e:
+        print("OCR processing error:", str(e))
+        raise HTTPException(
+            status_code=502,
+            detail="OCR processing failed. Please try again.",
+        )
 
-        if response.error.message:
-            raise HTTPException(
-                status_code=502,
-                detail="Google Vision could not process the image",
-            )
-
-            extracted_text = (
-                response.text_annotations[0].description
-                if response.text_annotations
-                else ""
-            )
-    except HTTPException:
-        raise
-
-    except (GoogleAPICallError, Exception):
-        raise HTTPException(status_code=502, detail="OCR processing failed")
+    if result.get("reason") == "read_failed":
+        raise HTTPException(
+            status_code=422,
+            detail="The image could not be read. Please try another photo.",
+        )
 
     user_scans["count"] += 1
 
     return {
-        "text": extracted_text,
+        **result,
         "scansRemaining": DAILY_SCAN_LIMIT - user_scans["count"],
     }

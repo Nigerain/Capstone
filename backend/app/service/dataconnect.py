@@ -222,3 +222,238 @@ def update_price(price_record_id: str, price: float, id_token: str):
         )
 
     return result.get("data", {})
+
+
+# Submit or change a vote on a price
+def submit_price_vote(price_record_id: str, is_upvote: bool, id_token: str):
+    response = requests.post(
+        DATA_CONNECT_URL.replace(":executeQuery", ":executeMutation"),
+        headers={
+            "X-FireBase-Auth-Token": id_token,
+            "Content-Type": "application/json",
+        },
+        json={
+            "operationName": "SubmitPriceVote",
+            "variables": {
+                "priceRecordId": price_record_id,
+                "isUpvote": is_upvote,
+            },
+        },
+        timeout=15,
+    )
+
+    response.raise_for_status()
+
+    result = response.json()
+
+    if result.get("errors"):
+        error = result["errors"][0]
+
+        raise DataConnectError(
+            message=error.get("message", "Price vote failed"),
+            code=error.get("extensions", {}).get("code", "UNKNOWN"),
+        )
+
+    return result.get("data", {})
+
+
+# remove the logged in users vote from a price
+
+
+def remove_price_vote(price_record_id: str, id_token: str):
+    response = requests.post(
+        DATA_CONNECT_URL.replace(":executeQuery", ":executeMutation"),
+        headers={
+            "X-FireBase-Auth-Token": id_token,
+            "Content-Type": "application/json",
+        },
+        json={
+            "operationName": "RemovePriceVote",
+            "variables": {
+                "priceRecordId": price_record_id,
+            },
+        },
+        timeout=15,
+    )
+
+    response.raise_for_status()
+
+    result = response.json()
+
+    if result.get("errors"):
+        error = result["errors"][0]
+
+        raise DataConnectError(
+            message=error.get("message", "Failed to remove price vote"),
+            code=error.get("extensions", {}).get("code", "UNKNOWN"),
+        )
+
+    return result.get("data", {})
+
+
+def get_price_votes(
+    price_record_id: str,
+    limit: int,
+    offset: int,
+    id_token: str,
+):
+    response = requests.post(
+        DATA_CONNECT_URL,
+        headers={
+            "X-FireBase-Auth-Token": id_token,
+            "Content-Type": "application/json",
+        },
+        json={
+            "operationName": "GetPriceVotes",
+            "variables": {
+                "priceRecordId": price_record_id,
+                "limit": limit,
+                "offset": offset,
+            },
+        },
+        timeout=15,
+    )
+
+    response.raise_for_status()
+
+    result = response.json()
+
+    if result.get("errors"):
+        error = result["errors"][0]
+
+        raise DataConnectError(
+            message=error.get("message", "Failed to retrieve price votes"),
+            code=error.get("extensions", {}).get("code", "UNKNOWN"),
+        )
+
+    return result.get("data", {}).get("votes", [])
+
+
+# get user statistics for reputation
+
+
+def get_user_stats(user_id: str, id_token: str):
+    response = requests.post(
+        DATA_CONNECT_URL,
+        headers={
+            "X-FireBase-Auth-Token": id_token,
+            "Content-Type": "application/json",
+        },
+        json={
+            "operationName": "GetUserStats",
+            "variables": {
+                "userId": user_id,
+            },
+        },
+        timeout=15,
+    )
+
+    response.raise_for_status()
+
+    result = response.json()
+
+    if result.get("errors"):
+        error = result["errors"][0]
+
+        raise DataConnectError(
+            message=error.get("message", "Failed to retrieve user statistics"),
+            code=error.get("extensions", {}).get("code", "UNKNOWN"),
+        )
+
+    return result.get("data", {})
+
+
+def get_submitter_vote_history(
+    user_id: str,
+    limit: int,
+    offset: int,
+    id_token: str,
+):
+    response = requests.post(
+        DATA_CONNECT_URL,
+        headers={
+            "X-FireBase-Auth-Token": id_token,
+            "Content-Type": "application/json",
+        },
+        json={
+            "operationName": "GetSubmitterVoteHistory",
+            "variables": {
+                "userId": user_id,
+                "limit": limit,
+                "offset": offset,
+            },
+        },
+        timeout=15,
+    )
+
+    response.raise_for_status()
+    result = response.json()
+
+    if result.get("errors"):
+        error = result["errors"][0]
+
+        raise DataConnectError(
+            message=error.get(
+                "message",
+                "Failed to retrieve submitter vote history",
+            ),
+            code=error.get("extensions", {}).get("code", "UNKNOWN"),
+        )
+
+    return result.get("data", {}).get("priceHistory", [])
+
+
+# Get Users who submitted a price record
+def get_price_submitters(
+    price_record_id: str, id_token: str, limit: int = 100, offset: int = 0
+):
+    response = requests.post(
+        DATA_CONNECT_URL,
+        headers={
+            "X-FireBase-Auth-Token": id_token,
+            "Content-Type": "application/json",
+        },
+        json={
+            "operationName": "GetPriceSubmitters",
+            "variables": {
+                "priceRecordId": price_record_id,
+                "limit": limit,
+                "offset": offset,
+            },
+        },
+        timeout=15,
+    )
+
+    response.raise_for_status()
+
+    result = response.json()
+
+    if result.get("errors"):
+        raise ValueError("Data Connect price submitters query failed")
+
+    return result.get("data", {}).get("submitters", [])
+
+# Get Price record data for confidence calculation
+
+def get_price_confidence_data(price_record_id: str, id_token: str):
+    response = requests.post(
+        DATA_CONNECT_URL, 
+        headers={
+            "X-FireBase-Auth-Token": id_token,
+            "Content-Type": "application/json",
+        }, 
+        json={
+            "operationName": "GetPriceConfidenceData",
+            "variables": {"priceRecordId": price_record_id},
+        },
+        timeout=15,
+    )
+    
+    response.raise_for_status()
+    
+    result = response.json()
+    
+    if result.get("errors"):
+        raise ValueError("Data Connect price confidence query failed")
+    
+    return result.get("data", {}).get("priceRecords", [])

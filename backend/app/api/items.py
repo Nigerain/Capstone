@@ -9,8 +9,11 @@ from app.service.dataconnect import search_items as db_search_items
 from app.service.dataconnect import get_item_prices as db_get_item_prices
 from app.service.dataconnect import create_item as db_create_item
 
-from pydantic import BaseModel
+from enum import Enum
+from pydantic import BaseModel, Field
 from typing import Optional
+
+import requests
 
 router = APIRouter(prefix="/items", tags=["Items"])
 
@@ -29,11 +32,31 @@ def search_items(
 
         return {"results": items}
 
-    except Exception as e:
-        print(f"Data Connect items search error: {type(e).__name__}: {e}")
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Firebase Data Connect request timed out",
+        )
+    except requests.exceptions.RequestException as e:
+        print(f"Firebase connection error: {type(e).__name__}: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to communicate with Firebase Data Connect",
+        )
+    except ValueError as e:
+        print(f"Firebase operation error: {e}")
 
         raise HTTPException(
-            status_code=502, detail="Unable to retrieve items from Data Connect"
+            status_code=502,
+            detail="Firebase Data Connect operation failed",
+        )
+
+    except Exception as e:
+        print(f"Unexpected backend error: {type(e).__name__}: {e}")
+
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected server error occurred",
         )
 
 
@@ -53,20 +76,57 @@ def get_item_prices(
 
         return {"item_id": item_id, "prices": prices}
 
-    except Exception as e:
-        print(f"Data Connect items search error: {type(e).__name__}: {e}")
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Firebase Data Connect request timed out",
+        )
+    except requests.exceptions.RequestException as e:
+        print(f"Firebase connection error: {type(e).__name__}: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to communicate with Firebase Data Connect",
+        )
+    except ValueError as e:
+        print(f"Firebase operation error: {e}")
 
         raise HTTPException(
             status_code=502,
-            detail="Unable to retrieve item price history from Data Connect",
+            detail="Firebase Data Connect operation failed",
         )
+
+    except Exception as e:
+        print(f"Unexpected backend error: {type(e).__name__}: {e}")
+
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected server error occurred",
+        )
+
+
+class GroceryUnit(str, Enum):
+    LB = "LB"
+    OZ = "OZ"
+    G = "G"
+    KG = "KG"
+    ML = "ML"
+    L = "L"
+    FL_OZ = "FL_OZ"
+    PT = "PT"
+    QT = "QT"
+    GAL = "GAL"
+    EACH = "EACH"
+    DOZEN = "DOZEN"
+    SERVING = "SERVING"
+    PACK = "PACK"
+    LOAF = "LOAF"
 
 
 class ItemCreate(BaseModel):
     itemName: str
     brand: Optional[str] = None
-    unitAmount: Optional[float] = None
-    unit: Optional[str] = None
+    unitAmount: Optional[float] = Field(default=None, gt=0)
+    unit: Optional[GroceryUnit] = None
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
@@ -85,14 +145,34 @@ def create_item(
             item_name=item.itemName,
             brand=item.brand,
             unit_amount=item.unitAmount,
-            unit=item.unit,
+            unit=item.unit.value if item.unit else None,
             id_token=credentials.credentials,
         )
         return result
 
-    except Exception as e:
-        print(f"Data connect item creation error: {type(e).__name__}: {e}")
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Firebase Data Connect request timed out",
+        )
+    except requests.exceptions.RequestException as e:
+        print(f"Firebase connection error: {type(e).__name__}: {e}")
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to communicate with Firebase Data Connect",
+        )
+    except ValueError as e:
+        print(f"Firebase operation error: {e}")
 
         raise HTTPException(
-            status_code=502, detail="Unable to create item in data connect"
+            status_code=502,
+            detail="Firebase Data Connect operation failed",
+        )
+
+    except Exception as e:
+        print(f"Unexpected backend error: {type(e).__name__}: {e}")
+
+        raise HTTPException(
+            status_code=500,
+            detail="An unexpected server error occurred",
         )
