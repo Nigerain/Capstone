@@ -1,4 +1,4 @@
-# check inputs before using them in reputation and confidence calculations.
+# check inputs before using them in service calculations and store lookups.
 
 from datetime import date, datetime
 from math import isfinite
@@ -23,6 +23,15 @@ def validate_number(name: str, value: float, maximum: float | None = None) -> No
         raise ValueError(f"{name} must be a finite number.")
     if not isfinite(value) or value < 0 or (maximum is not None and value > maximum):
         raise ValueError(f"{name} is outside its valid range.")
+
+
+def validate_coordinates(latitude: float, longitude: float) -> None:
+    for name, value, maximum in (
+        ("latitude", latitude, 90), ("longitude", longitude, 180),
+    ):
+        if (isinstance(value, bool) or not isinstance(value, (int, float))
+                or not -maximum <= value <= maximum or not isfinite(value)):
+            raise ValueError(f"Invalid {name}.")
 
 
 def validate_count(name: str, value: int) -> None:

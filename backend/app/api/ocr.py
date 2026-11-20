@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, File, UploadFile, HTTPException
+from io import BytesIO
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
+from app.ocr.extractor import scan_price_bytes
 from app.api.auth import get_current_user
 
 from datetime import date
@@ -11,6 +14,7 @@ router = APIRouter(
 )
 
 DAILY_SCAN_LIMIT = 10
+MAX_IMAGE_SIZE = 5 * 1024 * 1024
 
 scan_counts = defaultdict(lambda:
     {
@@ -26,7 +30,7 @@ async def scan_price(
 ):
     """
     Accept a price-tag image from an authenticated user. 
-    Gooogle Vision processing will be added here
+    Return structured price-tag extraction from Google Vision.
     """
     
     if not image.content_type or not image.content_type.startswith("image/"):
@@ -35,6 +39,13 @@ async def scan_price(
             detail="uploaded file must be an image"
         )
         
+    # reject empty or oversized uploads before calling Vision.
+    image_bytes = await image.read(MAX_IMAGE_SIZE + 1)
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded image is empty")
+    if len(image_bytes) > MAX_IMAGE_SIZE:
+        raise HTTPException(status_code=413, detail="Image must be 5 MB or smaller")
+
     user_id = current_user["uid"]
     user_scans = scan_counts[user_id]
      
@@ -51,15 +62,35 @@ async def scan_price(
         )
     
     user_scans["count"] += 1
-            
-    image_bytes = await image.read()
-    
-    return{
-        "message": "Image received successfully",
-        "filename": image.filename,
-        "contentType": image.content_type,
-        "size": len(image_bytes),
-        "userId": current_user["uid"],
-        "scansRemaining": DAILY_SCAN_LIMIT - user_scans["count"]
-    
-    }
+    try:
+        # run the blocking Vision request outside the event loop.
+        result = await run_in_threadpool(scan_price_bytes, image_bytes)
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="OCR service unavailable") from None
+
+    return {**result, "scansRemaining": DAILY_SCAN_LIMIT - user_scans["count"]}
+
+
+# accept raw JPEG uploads while keeping Firebase token verification.
+@router.post("/scan-jpeg")
+async def scan_jpeg(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+):
+    if request.headers.get("content-type", "").split(";")[0].strip().lower() != "image/jpeg":
+        raise HTTPException(status_code=415, detail="Expected image/jpeg")
+
+    photo = BytesIO()
+    async for chunk in request.stream():
+        if photo.tell() + len(chunk) > MAX_IMAGE_SIZE:
+            photo.close()
+            raise HTTPException(status_code=413, detail="Image must be 5 MB or smaller")
+        photo.write(chunk)
+    photo.seek(0)
+
+    # reuse the same validation, quota, and extractor for both upload formats.
+    image = UploadFile(photo, filename="price-tag.jpg", headers=request.headers)
+    try:
+        return await scan_price(image=image, current_user=current_user)
+    finally:
+        await image.close()

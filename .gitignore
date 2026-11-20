@@ -17,6 +17,9 @@ grocerypricepal-firebase-adminsdk-fbsvc-32193f0a2c.json
 .dataconnect/
 firebase-debug.log*
 ui-debug.log*
+.firebase/logs/
+dataconnect-debug.log*
+pglite-debug.log*
 
 # Expo and build output
 .expo/
@@ -52,3 +55,11 @@ yarn-error.*
 # Operating system files
 .DS_Store
 Thumbs.db
+
+# keep backend credentials out of Git.
+firebase-service-account.json
+/backend/service account/
+
+# local coding-tool settings
+.codex/
+.claude/

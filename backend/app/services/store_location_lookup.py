@@ -1,16 +1,13 @@
-"""Look up new store addresses after an explicit user action, never autocomplete.
-
-Use find_store_locations to reuse saved coordinates or return address candidates.
-The Store creation flow must confirm a candidate and check for duplicates before
-calling CreateStore. This module does not read or write PostgreSQL records.
-
-Display the returned OpenStreetMap attribution and link alongside lookup results.
-Public API policy: https://operations.osmfoundation.org/policies/nominatim/
-The in-memory cache supports one backend process and clears on restart. Multiple
-workers or hosts require shared request coordination or a different provider. Call this
-synchronous utility from a synchronous route or a worker thread, not an async loop.
-Only public Store addresses belong here; never pass user GPS or private addresses.
-"""
+# look up store addresses after the user requests a search, never for autocomplete.
+# reuse saved coordinates or return possible addresses for the user to confirm.
+# check for duplicate stores before calling CreateStore. this service does not
+# read or write database records.
+# show the OpenStreetMap attribution and link alongside the lookup results.
+# public API policy: https://operations.osmfoundation.org/policies/nominatim/
+# the cache supports one backend process and clears when it restarts.
+# multiple workers or hosts need shared request coordination or another provider.
+# call this service from a synchronous route or worker thread, not an async loop.
+# only pass public store addresses, never user GPS or private addresses.
 
 import json
 import math
@@ -22,9 +19,12 @@ from typing import Protocol
 
 import httpx
 
-from .store_location_lookup_cache import StoreLocationLookupCache, StoreLocationLookupCooldown
+from .store_location_lookup_cache import (
+    StoreLocationLookupCache, StoreLocationLookupCooldown,
+)
+from .validators import validate_coordinates
 
-# Required if we use openstreetmap
+# include the required OpenStreetMap credit with each address candidate.
 ATTRIBUTION = "© OpenStreetMap contributors"
 ATTRIBUTION_URL = "https://www.openstreetmap.org/copyright"
 
@@ -51,15 +51,6 @@ class StoreLocationLookupProvider(Protocol):
     def search(self, address: str) -> list[StoreLocation]: ...
 
 
-def validate_coordinates(latitude: float, longitude: float) -> None:
-    for name, value, maximum in (
-        ("latitude", latitude, 90), ("longitude", longitude, 180),
-    ):
-        if (isinstance(value, bool) or not isinstance(value, (int, float))
-                or not -maximum <= value <= maximum or not math.isfinite(value)):
-            raise ValueError(f"Invalid {name}.")
-
-
 def find_store_locations(
     address: str | None, *, provider: StoreLocationLookupProvider,
     latitude: float | None = None, longitude: float | None = None,
@@ -76,6 +67,7 @@ def find_store_locations(
 
 
 def _retry_after(value: str | None) -> float:
+    # read the cooldown as seconds or an HTTP date. wait at least one minute.
     try:
         seconds = float(value)
         return max(60.0, seconds) if math.isfinite(seconds) else 60.0
@@ -104,6 +96,7 @@ class NominatimProvider:
         self.client = client
 
     def search(self, address: str) -> list[StoreLocation]:
+        # reuse cached results for the same address, ignoring case and extra spaces.
         if not isinstance(address, str) or not address.strip():
             raise ValueError("A store address is required.")
         address = " ".join(address.split())
@@ -118,8 +111,10 @@ class NominatimProvider:
         return [StoreLocation(**result) for result in results]
 
     def _fetch(self, address: str) -> list[dict]:
-        params = {"q": address, "format": "jsonv2", "addressdetails": 1,
-                  "limit": 5, "accept-language": "en"}
+        params = {
+            "q": address, "format": "jsonv2", "addressdetails": 1,
+            "limit": 5, "accept-language": "en",
+        }
         try:
             if self.client is None:
                 with httpx.Client() as client:

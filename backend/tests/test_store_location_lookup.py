@@ -6,9 +6,10 @@ import httpx
 
 from app.services.store_location_lookup import (
     StoreLocationLookupError, NominatimProvider, create_store_location_lookup_provider,
-    find_store_locations, validate_coordinates,
+    find_store_locations,
 )
 from app.services.store_location_lookup_cache import StoreLocationLookupCache
+from app.services.validators import validate_coordinates
 
 
 class StoreLocationLookupTests(unittest.TestCase):

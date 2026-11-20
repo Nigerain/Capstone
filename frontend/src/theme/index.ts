@@ -17,14 +17,34 @@ export const colors = {
   dark: '#1F1E1E', // Submit / Add a Price buttons
   darkButton: '#1D1919', // center + button
   onDark: '#FFFFFF',
+  placeholder: '#817979', // form input placeholders
+  error: '#B3261E', // form validation messages (not in Figma yet)
+  // Scan screen
+  camera: '#353331', // behind the camera preview
+  cameraControl: '#211F1E', // round X / flash buttons
+  scanFrame: '#F7EF54', // yellow frame corners
+  scanTitle: '#FEFBFB', // "Scan Tag"
+  onDarkMuted: '#C7C2BF', // "Finding the price, item and size"
+  // Confirm Details screen
+  scanBanner: '#FBF0D6', // "Scanned from your photo…" banner
+  scanBannerText: '#8A6A1F',
+  scanned: '#F3C33C', // outline + dots on fields OCR filled in
+  scannedBadge: '#949352', // "SCANNED" label
+  needsInput: '#D98A2B', // outline on fields OCR couldn't fill (not in Figma yet)
+  change: '#277C3E', // "Change" link
 } as const;
 
 export const fonts = {
   heading: 'Fraunces_700Bold',
+  headingRegular: 'Fraunces_400Regular', // signup subtitle, terms line
+  headingSemibold: 'Fraunces_600SemiBold', // "Scan Tag"
   semibold: 'WorkSans_600SemiBold',
   medium: 'WorkSans_500Medium',
   regular: 'WorkSans_400Regular',
   body: 'Inter_400Regular',
+  bodyMedium: 'Inter_500Medium', // scan frame hint
+  bodySemibold: 'Inter_600SemiBold', // large dark buttons ("Add a Price"), input text
+  bodyBold: 'Inter_700Bold', // auth buttons, "Log in"
   badge: 'Unna_700Bold',
 } as const;
 

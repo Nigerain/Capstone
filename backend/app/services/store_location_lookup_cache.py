@@ -1,4 +1,4 @@
-# cache Store address results and space requests within one backend process.
+# cache store address results and space requests within one backend process.
 
 import time
 from copy import deepcopy
@@ -39,7 +39,7 @@ class StoreLocationLookupCache:
                 raise
 
             self.next_request_at = time.monotonic() + 1.0
-            # Keep matches for 30 days and empty searches for one hour.
+            # keep matches for 30 days and empty searches for one hour.
             ttl = 30 * 86400 if result else 3600
             self.results.pop(key, None)
             if len(self.results) >= 256:

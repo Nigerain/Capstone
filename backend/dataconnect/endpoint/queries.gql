@@ -1,4 +1,4 @@
-# help you search for items. Doesn't care about upper or lower case. 
+# search for items by name, ignoring upper and lower case.
 query SearchItems($pattern: String!) @auth(level: USER) {
   items(
     where: {
@@ -11,9 +11,7 @@ query SearchItems($pattern: String!) @auth(level: USER) {
     }
     orderBy: { itemName: ASC }
     limit: 20
-  )
-
-  {
+  ) {
     id
     itemName
     brand
@@ -22,7 +20,7 @@ query SearchItems($pattern: String!) @auth(level: USER) {
   }
 }
 
-# Grab the price of the item if it's public
+# grab the item's public prices with active submitters.
 query GetItemPrices($itemId: UUID!) @auth(level: USER) {
   priceRecords: _select(
     sql: """
@@ -63,7 +61,7 @@ query GetItemPrices($itemId: UUID!) @auth(level: USER) {
   )
 }
 
-# Let you search for stores when you're trying to submit a  price.
+# search for stores by name when submitting a price, ignoring upper and lower case.
 query SearchStores($pattern: String!) @auth(level: USER) {
   stores(
     where: {
@@ -76,9 +74,7 @@ query SearchStores($pattern: String!) @auth(level: USER) {
     }
     orderBy: { storeName: ASC }
     limit: 20
-  )
-  
-  {
+  ) {
     id
     storeName
     storeLocation
@@ -251,9 +247,7 @@ query GetPriceHistory(
     ]
     limit: $limit
     offset: $offset
-  )
-
-  {
+  ) {
     id
     price
     dateRecorded
@@ -310,9 +304,19 @@ query GetUserSubmissions(
       LIMIT $2 OFFSET $3
     """
     params: [
-      {_expr: "auth.uid"}
+      { _expr: "auth.uid" }
       $limit
       $offset
     ]
   )
+}
+
+# grab the store's saved coordinates. keep the phone's location on the phone.
+query GetStoreCoordinates($storeId: UUID!) @auth(level: USER) {
+  store(key: { id: $storeId }) {
+    id
+    storeName
+    latitude
+    longitude
+  }
 }

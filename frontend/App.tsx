@@ -1,14 +1,26 @@
 import { DefaultTheme, NavigationContainer, type Theme } from '@react-navigation/native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useFonts } from 'expo-font';
+import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
+import { useCallback, useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { SplashView } from './src/components/SplashView';
 import { RootNavigator } from './src/navigation/RootNavigator';
+import { shouldRetry } from './src/services/api';
 import { colors } from './src/theme';
 import { fontAssets } from './src/theme/fonts';
 
-const queryClient = new QueryClient();
+// Keep the native splash up until SplashView is on screen to take over.
+SplashScreen.preventAutoHideAsync();
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    // Default is 3 retries even on a 404, which made error screens take ~7s to show up.
+    queries: { retry: shouldRetry },
+  },
+});
 
 const navTheme: Theme = {
   ...DefaultTheme,
@@ -23,18 +35,27 @@ const navTheme: Theme = {
 };
 
 export default function App() {
-  const [fontsLoaded, fontError] = useFonts(fontAssets);
 
-  // Wait for fonts so text doesn't flash in the system font first.
-  if (!fontsLoaded && !fontError) return null;
+  const [fontsLoaded, fontError] = useFonts(fontAssets);
+  const [splashDone, setSplashDone] = useState(false);
+  const handleSplashFinish = useCallback(() => setSplashDone(true), []);
+
+  // If a font fails, still open the app (in the system font) instead of hanging.
+  const appReady = fontsLoaded || fontError != null;
 
   return (
     <QueryClientProvider client={queryClient}>
       <SafeAreaProvider>
-        <NavigationContainer theme={navTheme}>
-          <RootNavigator />
-          <StatusBar style="dark" />
-        </NavigationContainer>
+        {/* Wait for fonts so text doesn't flash in the system font first. */}
+        {appReady && (
+          <NavigationContainer theme={navTheme}>
+            <RootNavigator />
+          </NavigationContainer>
+        )}
+        {!splashDone && (
+          <SplashView ready={appReady} onFinish={handleSplashFinish} />
+        )}
+        <StatusBar style="dark" />
       </SafeAreaProvider>
     </QueryClientProvider>
   );
