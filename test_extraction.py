@@ -10,14 +10,17 @@ from PIL import Image
 from ocr_test import (
     FALLBACK_PRICE_FACTOR,
     MIN_PRICE_CONFIDENCE,
+    _name_candidate_line,
     _normalized_size_match,
     _strip_trailing_codes,
     extract_brand,
     extract_final_price,
+    extract_item_name,
     extract_unit_size,
     extract_weight,
     load_image_as_jpeg_bytes,
     price_confidence,
+    split_unit_size,
 )
 
 
@@ -60,6 +63,16 @@ class BrandTests(unittest.TestCase):
     def test_milbona(self):
         self.assertEqual(extract_brand("LACTOSE FREE\nMilbona"), "Milbona")
 
+    def test_shelf_tag_abbreviation_resolves_to_the_full_brand(self):
+        # b.HEIC: a Target shelf label prints "GG MILK", not the brand in full
+        self.assertEqual(extract_brand("RETAIL PRICE\n4.29\nGG MILK"), "Good & Gather")
+
+    def test_another_product_in_frame_does_not_win(self):
+        # e.HEIC: the scanned item repeats its brand on package and tag, the one
+        # further down the shelf appears once
+        text = "CARANDO\nITALIAN STYLE MEATBALLS\nRETAIL PRICE\n5.49\nCARANDO\nGood & Gather"
+        self.assertEqual(extract_brand(text), "Carando")
+
 
 class SizeExtractionTests(unittest.TestCase):
     def test_fraction_is_not_split(self):
@@ -74,6 +87,128 @@ class SizeExtractionTests(unittest.TestCase):
     def test_multipack_is_not_a_fraction(self):
         # 16.JPG: "6/13.2 OZ" is six 13.2 oz cans
         self.assertEqual(extract_unit_size("6/13.2 OZ"), "13.2 OZ")
+
+    def test_price_per_pound_is_not_the_weight(self):
+        # f.HEIC: "$2.29 LB 5.29 LB" is the price per pound then the net weight
+        self.assertEqual(extract_unit_size("$2.29 LB 5.29 LB\nPRICE/LB NET WT LBS"), "5.29 LB")
+
+
+class NutritionFilterTests(unittest.TestCase):
+    def test_nutrition_values_are_not_sizes(self):
+        self.assertEqual(extract_weight("Total Fat 8g"), [])
+        self.assertEqual(extract_weight("25g\nPROTEIN"), [])
+
+    def test_serving_size_is_not_the_pack_size(self):
+        self.assertEqual(extract_weight("Serving size 8 fl oz"), [])
+
+    def test_nutrient_word_in_the_product_name_keeps_the_size(self):
+        # b.HEIC: the only size on the tag shares a line with "REDUCED FAT"
+        self.assertEqual(extract_weight("2% REDUCED FAT 1GAL"), ["1GAL"])
+
+    def test_serving_in_millilitres_loses_to_the_container_size(self):
+        # milk.HEIC prints "1 cup (240mL)" beside a nutrient, and the real size further down
+        text = "1 cup (240mL) Cholest\nSodium\nGALLON (3.78 L)\nKOSHER"
+        self.assertEqual(extract_unit_size(text), "3.78 L")
+
+
+class NameExclusionTests(unittest.TestCase):
+    def test_name_keeps_its_words_when_the_size_is_on_the_same_line(self):
+        # the Amazon Fresh tag prints name and size together; a digit fails the name shape
+        self.assertEqual(
+            extract_item_name("AMAZON FRESH SWEET ONIONS 2LB\nREG\nWITH\nPRIME"),
+            "AMAZON FRESH SWEET ONIONS",
+        )
+
+    def test_price_tier_words_are_not_a_name(self):
+        for line in ("REG", "WITH", "PRIME", "MEMBER", "EACH"):
+            self.assertIsNone(_name_candidate_line(line), line)
+
+    def test_a_real_name_may_contain_a_tier_word(self):
+        self.assertEqual(_name_candidate_line("Prime Rib Roast"), "Prime Rib Roast")
+
+    def test_freshness_disclaimer_is_not_a_name(self):
+        # d.HEIC: printed on most meat packaging, and shaped like a name
+        self.assertIsNone(_name_candidate_line("COLOR IS NOT"))
+        self.assertIsNone(_name_candidate_line("AN ACCURATE"))
+
+
+class PerPoundTotalTests(unittest.TestCase):
+    # c.HEIC: the shelf label repeats the per-pound rate, so the rate reads as the price
+    RATE_TAG = "NET WT. 1.35lb PRICE\n14.99/Lb.\n$20.24\nRETAIL PRICE\n14.99"
+
+    def test_rate_times_weight_recovers_the_printed_total(self):
+        self.assertEqual(extract_final_price(self.RATE_TAG)[0], "20.24")
+
+    def test_the_correction_says_where_the_price_came_from(self):
+        self.assertIn("14.99/lb", extract_final_price(self.RATE_TAG)[1])
+
+    def test_a_recovered_total_is_not_scaled_down(self):
+        price, source = extract_final_price(self.RATE_TAG)
+        self.assertEqual(price_confidence(price, source, [("$20.24", 0.95)]), 0.95)
+
+    def test_a_total_not_printed_on_the_tag_is_never_invented(self):
+        text = "NET WT. 1.35lb\nPRICE/LB\nRETAIL PRICE\n14.99"
+        self.assertEqual(extract_final_price(text)[0], "14.99")
+
+    def test_a_labelled_total_is_left_alone(self):
+        # f.HEIC: already correct, and 12.11 x 5.29 lb matches nothing printed
+        text = "$2.29 LB 5.29 LB\nPRICE/LB NET WT LBS\nTOTAL PRICE\n$12.11"
+        self.assertEqual(extract_final_price(text)[0], "12.11")
+
+    def test_no_per_unit_wording_means_no_correction(self):
+        text = "NET WT 1.35lb\n$20.24\nRETAIL PRICE\n14.99"
+        self.assertEqual(extract_final_price(text)[0], "14.99")
+
+
+class NameSelectionTests(unittest.TestCase):
+    def test_a_candidate_naming_a_food_beats_a_longer_one(self):
+        # 1.JPG: the abbreviated name joins the inspection stamp into a longer run
+        text = "INSP\nTED\nBNLS SKLS\n935\nCHICKEN BREAST"
+        self.assertEqual(extract_item_name(text), "CHICKEN BREAST")
+
+    def test_the_fullest_form_of_the_name_still_wins(self):
+        # 16.JPG: several candidates name the cheese, the longest is the whole name
+        text = "Brie\n8 OZ\nDouble Creme Brie Soft Ripened Cheese\n4.99"
+        self.assertEqual(extract_item_name(text), "Double Creme Brie Soft Ripened Cheese")
+
+    def test_longest_run_still_decides_when_no_candidate_names_a_food(self):
+        text = "Relleno-Style\n12 OZ\nBreaded Chile Relleno-Style"
+        self.assertEqual(extract_item_name(text), "Breaded Chile Relleno-Style")
+
+    def test_clearer_read_settles_a_tie_between_equal_length_names(self):
+        text = "Ground Bccf\n5.99\nGround Beef"
+        words = [("Ground", 0.98), ("Bccf", 0.41), ("Beef", 0.97)]
+        self.assertEqual(extract_item_name(text, words), "Ground Beef")
+
+    def test_no_confidences_passed_keeps_the_earlier_candidate(self):
+        text = "Ground Bccf\n5.99\nGround Beef"
+        self.assertEqual(extract_item_name(text), "Ground Bccf")
+
+
+class UnitSizeSplitTests(unittest.TestCase):
+    def test_sizes_from_the_test_photos_map_to_the_enum(self):
+        cases = {
+            "1GAL": (1.0, "GAL"),      # b.HEIC
+            "1.35lb": (1.35, "LB"),    # c.HEIC
+            "32 OZ": (32.0, "OZ"),     # d.HEIC
+            "5.29 LB": (5.29, "LB"),   # f.HEIC
+            "3.78 L": (3.78, "L"),     # milk.HEIC
+            "64 FL OZ": (64.0, "FL_OZ"),
+            "1 dozen": (1.0, "DOZEN"),
+        }
+        for text, expected in cases.items():
+            self.assertEqual(split_unit_size(text), expected, text)
+
+    def test_a_fraction_becomes_a_decimal_amount(self):
+        self.assertEqual(split_unit_size("1/2 GAL"), (0.5, "GAL"))
+
+    def test_a_count_size_reports_no_unit_because_the_enum_has_none(self):
+        # a.HEIC returns "100 CT"; GroceryUnit has no CT, and a guessed unit is worse
+        self.assertEqual(split_unit_size("100 CT"), (None, None))
+
+    def test_unparseable_sizes_are_blank_not_guessed(self):
+        for text in ("6/13.2 OZ", "1/0 GAL", "", None, "large"):
+            self.assertEqual(split_unit_size(text), (None, None), text)
 
 
 class SizeMatchTests(unittest.TestCase):

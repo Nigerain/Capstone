@@ -35,14 +35,15 @@ def vision_response(text, words, error=""):
 
 
 class FakeClient:
-    def __init__(self, response=None, raises=None):
+    def __init__(self, response=None, raises=None, raise_times=None):
         self.response = response
         self.raises = raises
+        self.raise_times = raise_times  # None raises on every call
         self.calls = 0
 
     def document_text_detection(self, image, timeout=None):
         self.calls += 1
-        if self.raises:
+        if self.raises and (self.raise_times is None or self.calls <= self.raise_times):
             raise self.raises
         return self.response
 
@@ -80,6 +81,14 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(result["unitSize"], "1 GAL")
         self.assertEqual(result["itemName"], "WHOLE MILK")
 
+    def test_the_size_is_also_reported_as_the_database_pair(self):
+        text = "Good & Gather\nWHOLE MILK\n1 GAL\nYOU PAY\n4.19"
+        words = [("WHOLE", 0.9), ("MILK", 0.9), ("4.19", 0.97)]
+        result = scan_price_bytes(make_jpeg(), FakeClient(vision_response(text, words)))
+        self.assertEqual(result["unitSize"], "1 GAL")
+        self.assertEqual(result["unitAmount"], 1.0)
+        self.assertEqual(result["unit"], "GAL")
+
     def test_no_price_is_low_confidence(self):
         client = FakeClient(vision_response("WHOLE MILK", [("WHOLE", 0.99), ("MILK", 0.99)]))
         result = scan_price_bytes(make_jpeg(), client)
@@ -93,7 +102,7 @@ class FailureTests(unittest.TestCase):
         self.assertEqual(result["status"], "low_confidence")
         self.assertEqual(result["reason"], "read_failed")
         self.assertEqual(result["priceConfidence"], 0.0)
-        for field in ("itemName", "brand", "unitSize", "price"):
+        for field in ("itemName", "brand", "unitSize", "unitAmount", "unit", "price"):
             self.assertIsNone(result[field])
 
     def test_error_inside_the_vision_response(self):
@@ -104,9 +113,23 @@ class FailureTests(unittest.TestCase):
 
     def test_vision_api_exception(self):
         client = FakeClient(raises=ServiceUnavailable("down"))
-        with self.assertLogs("ocr_test", level="WARNING"):
-            result = scan_price_bytes(make_jpeg(), client)
+        with mock.patch.object(ocr_test, "VISION_RETRY_DELAY_SECONDS", 0):
+            with self.assertLogs("ocr_test", level="WARNING"):
+                result = scan_price_bytes(make_jpeg(), client)
         self.assert_read_failed(result)
+        self.assertEqual(client.calls, 2)
+
+    def test_brief_outage_is_retried_once(self):
+        client = FakeClient(
+            vision_response("YOU PAY\n1.79", [("1.79", 0.97)]),
+            raises=ServiceUnavailable("down"),
+            raise_times=1,
+        )
+        with mock.patch.object(ocr_test, "VISION_RETRY_DELAY_SECONDS", 0):
+            result = scan_price_bytes(make_jpeg(), client)
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["price"], "1.79")
+        self.assertEqual(client.calls, 2)
 
     def test_non_image_upload_never_reaches_vision(self):
         client = labelled_client(0.97)

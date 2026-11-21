@@ -3,6 +3,7 @@ import io
 import logging
 import os
 import re
+import time
 import unicodedata
 from collections import Counter
 from functools import lru_cache
@@ -12,7 +13,7 @@ import pytesseract
 import numpy as np
 import pillow_heif
 from PIL import Image, ImageOps
-from google.api_core.exceptions import GoogleAPIError
+from google.api_core.exceptions import GoogleAPIError, ServiceUnavailable
 from google.cloud import vision
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -24,6 +25,7 @@ pillow_heif.register_heif_opener()
 # A small upload can decompress to gigabytes of pixels, so oversized images are rejected.
 MAX_IMAGE_PIXELS = 64_000_000
 VISION_TIMEOUT_SECONDS = 30
+VISION_RETRY_DELAY_SECONDS = 1
 
 
 class ScanError(Exception):
@@ -71,14 +73,29 @@ STANDALONE_UNIT_LABEL = re.compile(r'^\s*(?:UNIT PRICE|PRICE\s*/\s*LB)\s*$', re.
 UNIT_PRICE_LABEL = re.compile(
     r'UNIT PRICE|PRICE\s*/\s*LB|\bPER[\s-]+(?:LB|OZ|QT|DOZEN|EA|\d+\s*COUNT)\b', re.IGNORECASE
 )
+# a rate written on the price itself ("14.99/Lb."), which UNIT_PRICE_LABEL misses
+PER_POUND_RATE = re.compile(r'\d{1,3}[.,]\d{2}\s*/\s*lbs?\b', re.IGNORECASE)
+# a net weight in pounds; the $ in the lookbehind keeps the rate in "$2.29 LB" out
+POUND_WEIGHT = re.compile(r'(?<![\d.$])(\d+(?:\.\d+)?)[ \t]*lbs?\b', re.IGNORECASE)
+# rate x weight is rounded to the cent before printing, so allow a cent of drift
+PRICE_TOTAL_TOLERANCE = 0.01
 # [ \t]* not \s*, so "4.49\nG" isn't read as a weight
 # "fl" catches "64 fl oz"; "count" is spelled out on digital shelf tags, not just "ct"
 # single-digit fraction keeps "(1/2 GAL)" from being read as "2 GAL"; "6/13.2 OZ" (a 6 pack) is not one
-WEIGHT_PATTERN = re.compile(r'(?:\d/\d|\d+(?:\.\d+)?)[ \t]*(?:fl[ \t.]*)?(?:oz|lbs?|g|kg|ml|l|gal|ct|count|dz|pk)\b', re.IGNORECASE)
-NUTRITION_WORDS = re.compile(
-    r'fat|protein|sugar|carb|fiber|sodium|cholest|serving|calories|potas|iron|calcium|vitamin',
-    re.IGNORECASE,
-)
+# the lookbehind rejects a price per unit, which is shaped like a weight ("$2.29 LB" next to "5.29 LB"),
+# and stops the tail of a rejected number matching on its own ("$2.29" -> "29 LB")
+WEIGHT_PATTERN = re.compile(r'(?<![\d.$])(?:\d/\d|\d+(?:\.\d+)?)[ \t]*(?:fl[ \t.]*)?(?:oz|lbs?|g|kg|ml|l|gal|ct|count|dz|pk)\b', re.IGNORECASE)
+TRAILING_SIZE_PATTERN = re.compile(WEIGHT_PATTERN.pattern + r'\s*$', re.IGNORECASE)
+_NUTRIENT_WORDS = r'fat|protein|sugar|carb|fiber|sodium|cholest|calories|potas|iron|calcium|vitamin'
+# "serving size 1 cup (240ml)" states a size of its own, so that line is never the pack size
+_SERVING_WORDS = r'serving'
+NUTRITION_WORDS = re.compile(rf'{_NUTRIENT_WORDS}|{_SERVING_WORDS}', re.IGNORECASE)
+NUTRIENT_PATTERN = re.compile(_NUTRIENT_WORDS, re.IGNORECASE)
+SERVING_PATTERN = re.compile(_SERVING_WORDS, re.IGNORECASE)
+# Beside a nutrient word, a measurement is the pack size only when its unit is one a
+# Nutrition Facts panel never uses: "2% REDUCED FAT 1GAL" is a size, while "Total Fat 8g"
+# and the "1 cup (240mL)" serving beside "Cholest" are not.
+PACK_ONLY_UNIT = re.compile(r'(?:oz|lbs?|gal|ct|count|dz|pk)\s*$', re.IGNORECASE)
 # A container-size line ("(1/2 GAL) 1.89", "96 FL OZ (2.8L)") , the volume
 # number sometimes lands on its own line without the unit attached.
 CONTAINER_SIZE_LINE = re.compile(r'\bGAL\b|\bFL\s*OZ\b', re.IGNORECASE)
@@ -89,17 +106,21 @@ NAME_LINE_PATTERN = re.compile(r"^(?=.{3,}$)(?:\d+%\s++)?(?:[A-ZÀ-ÖØ-Þ][A-Za
 NOISE_LINE_PATTERN = re.compile(
     r'DEPARTMENT OF|AGRICULTURE|FEDERAL REGULATIONS|SERVING SUGGESTION|'
     r'KEEP REFRIGERAT|SELL BY|BEST BY|BEST IF USED|USE WITHIN|PRODUCT OF|'
-    r'DISTRIBUTED BY|MEAT DEPT|INSPECTED|USDA|NEEDS TO BE|COOK TO|'
+    r'DISTRIBUTED BY|MEAT DEPT|INSPECTED|AND PASSED BY|USDA|NEEDS TO BE|COOK TO|'
     r'THERMOMETER|HORMONES|STEROIDS|ANTIBIOTICS|HATCHED|HARVESTED|'
-    r'VERIFIED|PROCESSED|INGREDIENTS|LEARN MORE|SHAKE WELL|GLUTEN FREE|'
+    r'VERIFIED|PROCESSED|MINIMALLY|INGREDIENTS|LEARN MORE|SHAKE WELL|GLUTEN FREE|'
     r'NEW LOW PRICE|REGULAR PRICE|WITH LIDL PLUS|BUY MORE|SAVE MORE|'
+    r'EXCLUSIVE DEAL|COLOR IS NOT|ACCURATE|INDICATOR|FREEZE BY|'
     r'PER UNIT|PER QT|^LIMIT \d+$',
     re.IGNORECASE,
 )
-# bare modifier word alone on a line ("Organic"), not useful without a noun
+# a bare word alone on a line: a modifier with no noun ("Organic"), or shelf-tag
+# chrome naming a price tier ("REG", "WITH" / "PRIME" on an Amazon Fresh tag).
+# Only whole-line matches, so a real name keeps these words ("Prime Rib").
 GENERIC_MODIFIER_ONLY = re.compile(
     r"^(?:ORGANIC|CERTIFIED|HUMANE|KOSHER|NATURAL|FRESH|PASTURE RAISED|"
-    r"CAGE FREE|GRADE [A-Z]|NON[\s-]?GMO)$",
+    r"CAGE FREE|GRADE [A-Z]|NON[\s-]?GMO|"
+    r"REG|PRIME|WITH|WITH PRIME|MEMBER|CLUB|EACH)$",
     re.IGNORECASE,
 )
 # lookup, not a positional rule; brand position varies by tag. Add new ones as seen.
@@ -109,7 +130,10 @@ KNOWN_BRANDS = [
     "alouette", "eggland's best", "lactaid", "perdue", "tyson",
     "hy-vee", "target", "butcher's specialty", "allen harim",
     "kirkland signature", "member's mark", "market pantry", "trader joe's",
+    "carando",
 ]
+# shelf tags abbreviate the brand they stock ("GG MILK" on a Target tag)
+BRAND_ALIASES = {"gg": "good & gather"}
 # a retailer, not who makes the product; a product brand wins when both appear
 STORE_BRANDS = {"lidl", "hy-vee", "target"}
 
@@ -123,6 +147,43 @@ BRAND_PATTERN = re.compile(rf"\b({_brand_alternation(KNOWN_BRANDS)})\b", re.IGNO
 # caps the longest-run heuristic so garbled OCR doesn't join into a fake name
 # egg/poultry names run to 7 words ("Free Range Large Brown Grade A Eggs")
 MAX_PLAUSIBLE_NAME_WORDS = 7
+# Common grocery nouns. A product name nearly always contains one and misread
+# packaging text nearly never does, so this separates "CHICKEN BREAST" from
+# "BNLS SKLS" where length alone cannot. Add nouns as new categories are tested.
+FOOD_WORDS = """
+apple apples banana bananas orange oranges lemon lemons lime limes grape grapes
+berry berries strawberry strawberries blueberry blueberries raspberry blackberry
+melon watermelon cantaloupe pineapple mango peach peaches pear pears plum cherry cherries
+avocado tomato tomatoes potato potatoes onion onions garlic carrot carrots celery
+lettuce spinach kale cabbage broccoli cauliflower pepper peppers cucumber zucchini
+squash pumpkin mushroom mushrooms corn peas beans asparagus radish beet ginger herbs
+basil cilantro parsley salad greens sprouts
+
+milk cream creamer butter margarine cheese cheddar mozzarella parmesan swiss provolone
+gouda brie feta ricotta yogurt yoghurt eggs egg buttermilk
+
+beef steak sirloin ribeye brisket chuck ground patties burger chicken breast breasts
+thigh thighs wings drumstick turkey pork bacon ham sausage sausages salami pepperoni
+meatball meatballs ribs roast lamb veal fish salmon tuna tilapia cod shrimp crab
+lobster scallops seafood hotdog franks deli
+
+bread loaf bun buns roll rolls bagel bagels muffin muffins tortilla tortillas pita
+croissant biscuit biscuits cake cookies cookie brownie pie donut doughnut pastry
+baguette sourdough wheat rye white
+
+rice pasta spaghetti penne macaroni noodles noodle cereal oats oatmeal granola flour
+sugar salt pepper spice sauce ketchup mustard mayo mayonnaise dressing vinegar oil
+olive soup broth stock lentils chickpeas peanut almond cashew walnut pecan nuts
+honey syrup jam jelly chips crackers pretzels popcorn candy chocolate
+
+water juice soda cola coffee tea lemonade seltzer sparkling beer wine cider kombucha
+smoothie
+
+pizza fries nuggets waffles pancakes sorbet
+""".split()
+FOOD_PATTERN = re.compile(
+    r"\b(" + "|".join(sorted(set(FOOD_WORDS), key=len, reverse=True)) + r")\b", re.IGNORECASE
+)
 
 
 def preprocess_for_tesseract(image_path):
@@ -156,9 +217,18 @@ def load_image_as_jpeg_bytes(source):
     return buffer.getvalue()
 
 
+def _detect_once_more_if_unavailable(detect, image):
+    # Vision returns 503 during brief outages; retrying makes a failed scan a slow one
+    try:
+        return detect(image=image, timeout=VISION_TIMEOUT_SECONDS)
+    except ServiceUnavailable:
+        time.sleep(VISION_RETRY_DELAY_SECONDS)
+        return detect(image=image, timeout=VISION_TIMEOUT_SECONDS)
+
+
 def _annotate(detect, jpeg_bytes):
     try:
-        response = detect(image=vision.Image(content=jpeg_bytes), timeout=VISION_TIMEOUT_SECONDS)
+        response = _detect_once_more_if_unavailable(detect, vision.Image(content=jpeg_bytes))
     except GoogleAPIError as error:
         raise ScanError("Vision request failed") from error
     # the API reports some failures inside the response, not as an exception
@@ -195,6 +265,12 @@ LABELLED_PRICE_FACTOR = 1.0
 FALLBACK_PRICE_FACTOR = 0.85
 # extract_final_price tags a price found next to a "you pay"-style label with this
 LABELLED_SOURCE_PREFIX = "label:"
+# ... and a price recovered from a per-pound rate times the net weight with this
+TOTAL_SOURCE_PREFIX = "total:"
+# Both say the tag stated what the number was, so neither is scaled down. A rate
+# times weight landing on another printed price is two readings agreeing, which is
+# at least as strong as a label.
+FULL_CONFIDENCE_SOURCES = (LABELLED_SOURCE_PREFIX, TOTAL_SOURCE_PREFIX)
 
 
 def price_confidence(price, price_source, words):
@@ -213,8 +289,8 @@ def price_confidence(price, price_source, words):
                if re.sub(r"^\D+|\D+$", "", text).replace(",", ".") in forms]
     if not matches:
         return 0.0
-    labelled = price_source.startswith(LABELLED_SOURCE_PREFIX)
-    factor = LABELLED_PRICE_FACTOR if labelled else FALLBACK_PRICE_FACTOR
+    stated = price_source.startswith(FULL_CONFIDENCE_SOURCES)
+    factor = LABELLED_PRICE_FACTOR if stated else FALLBACK_PRICE_FACTOR
     return round(max(matches) * factor, 3)
 
 
@@ -226,8 +302,36 @@ def extract_prices(text):
     return [price for _, price in sorted(found)]
 
 
+def _printed_total_for_rate(rate, text):
+    """The printed total when `rate` turns out to be a per-pound price, else None.
+
+    A scale label prints the rate, the net weight and the total, and the rate carries
+    the same "PRICE" wording, so it gets picked instead (c.HEIC: 14.99/lb on a 1.35 lb
+    steak costing 20.24). The product is only trusted when the tag prints it too, so
+    this corrects a misread and never invents a price the shopper cannot see.
+    """
+    if rate is None or not (UNIT_PRICE_LABEL.search(text) or PER_POUND_RATE.search(text)):
+        return None
+    cleaned = DATE_PATTERN.sub(" ", text)
+    printed = {p.lstrip("$") for p in extract_prices(cleaned)} - {rate}
+    for weight in POUND_WEIGHT.findall(cleaned):
+        total = float(rate) * float(weight)
+        for candidate in printed:
+            if abs(float(candidate) - total) <= PRICE_TOTAL_TOLERANCE:
+                return candidate
+    return None
+
+
 def extract_final_price(text):
     """Returns (price, how_it_was_chosen) so each guess can be checked by hand."""
+    price, source = _price_as_printed(text)
+    total = _printed_total_for_rate(price, text)
+    if total is not None:
+        return total, f"{TOTAL_SOURCE_PREFIX} {price}/lb x net weight"
+    return price, source
+
+
+def _price_as_printed(text):
     text = DATE_PATTERN.sub(" ", text)
     lines = text.split("\n")
 
@@ -271,10 +375,15 @@ def extract_weight(text):
     lines = text.split("\n")
     weights = []
     for i, line in enumerate(lines):
-        # Skip Nutrition Facts values like "Total Fat 8g" or "25g | PROTEIN".
-        if NUTRITION_WORDS.search(" ".join(lines[i:i + 2])):
+        # a value can sit a line apart from its label ("25g" above "PROTEIN")
+        window = " ".join(lines[i:i + 2])
+        if SERVING_PATTERN.search(window):
             continue
-        weights += WEIGHT_PATTERN.findall(line)
+        beside_nutrient = NUTRIENT_PATTERN.search(window)
+        weights += [
+            weight for weight in WEIGHT_PATTERN.findall(line)
+            if not beside_nutrient or PACK_ONLY_UNIT.search(weight)
+        ]
     return weights
 
 
@@ -286,9 +395,15 @@ def _strip_trailing_codes(line):
     return " ".join(tokens)
 
 
+def _strip_trailing_size(line):
+    # the size has its own field, and leaving it attached costs the whole line:
+    # a digit anywhere fails NAME_LINE_PATTERN ("AMAZON FRESH SWEET ONIONS 2LB")
+    return TRAILING_SIZE_PATTERN.sub("", line).rstrip()
+
+
 def _name_candidate_line(line):
     # cleaned line if name-shaped, else None; shared so both callers below agree
-    stripped = _strip_trailing_codes(line.strip())
+    stripped = _strip_trailing_size(_strip_trailing_codes(line.strip()))
     if not NAME_LINE_PATTERN.match(stripped):
         return None
     if (NOISE_LINE_PATTERN.search(stripped) or GENERIC_MODIFIER_ONLY.match(stripped)
@@ -304,7 +419,14 @@ def extract_name_candidates(text):
     return [c for c in (_name_candidate_line(line) for line in text.split("\n")) if c]
 
 
-def _best_name_group(text):
+def _clearest_read(candidate, confidence_by_word):
+    # mean Vision confidence over the words it read; 0.0 when no confidences were passed,
+    # which makes this a no-op tiebreak rather than a different ranking
+    scores = [confidence_by_word[w.lower()] for w in candidate.split() if w.lower() in confidence_by_word]
+    return sum(scores) / len(scores) if scores else 0.0
+
+
+def _best_name_group(text, words=None):
     # joins consecutive name-shaped lines into one candidate; tags often
     # split the name across lines ("CAGE FREE" / "LARGE BROWN" / "EGGS")
     lines = text.split("\n")
@@ -320,12 +442,23 @@ def _best_name_group(text):
         groups.append(" ".join(current))
     if not groups:
         return None
-    return max(groups, key=lambda g: len(g.split()))
+    confidence_by_word = {}
+    for word, confidence in words or []:
+        key = word.lower()
+        confidence_by_word[key] = max(confidence_by_word.get(key, 0.0), confidence)
+    # a candidate naming a food beats one that doesn't, however long the other is;
+    # among those that do, the longest is the fullest form of the name, and a clearer
+    # read settles a tie between two of equal length
+    named_food = [group for group in groups if FOOD_PATTERN.search(group)]
+    return max(
+        named_food or groups,
+        key=lambda g: (len(g.split()), _clearest_read(g, confidence_by_word)),
+    )
 
 
-def extract_item_name(text):
+def extract_item_name(text, words=None):
     # None means low confidence, not "retry"; caller should ask the user to type it in
-    best = _best_name_group(text)
+    best = _best_name_group(text, words)
     if best is None or len(best.split()) > MAX_PLAUSIBLE_NAME_WORDS:
         return None
     return best
@@ -339,6 +472,11 @@ def _brand_key(s):
 
 
 _BRANDS_BY_KEY = {_brand_key(b): b for b in KNOWN_BRANDS}
+# an alias resolves to the full brand, so "GG MILK" reports Good & Gather, not "Gg".
+# Kept out of BRAND_PATTERN so an abbreviation doesn't disqualify the line as a name.
+_BRANDS_BY_KEY.update(
+    {_brand_key(alias): _BRANDS_BY_KEY[_brand_key(brand)] for alias, brand in BRAND_ALIASES.items()}
+)
 _STORE_BRAND_KEYS = {_brand_key(b) for b in STORE_BRANDS}
 _BRAND_SEARCH = re.compile(rf"\b({_brand_alternation(_BRANDS_BY_KEY)})\b")
 
@@ -403,6 +541,8 @@ def _failed_scan():
         "itemName": None,
         "brand": None,
         "unitSize": None,
+        "unitAmount": None,
+        "unit": None,
         "price": None,
         "priceConfidence": 0.0,
     }
@@ -434,12 +574,17 @@ def scan_price_bytes(image_bytes, client=None):
         status, reason = STATUS_LOW_CONFIDENCE, REASON_LOW_SCORE
     else:
         status, reason = STATUS_OK, None
+    unit_size = extract_unit_size(text)
+    # unitSize is the text as printed, for the app; the pair is what the database stores
+    unit_amount, grocery_unit = split_unit_size(unit_size)
     return {
         "status": status,
         "reason": reason,
-        "itemName": extract_item_name(text),
+        "itemName": extract_item_name(text, words),
         "brand": extract_brand(text),
-        "unitSize": extract_unit_size(text),
+        "unitSize": unit_size,
+        "unitAmount": unit_amount,
+        "unit": grocery_unit,
         "price": price if status == STATUS_OK else None,
         "priceConfidence": confidence,
     }
@@ -509,6 +654,37 @@ def _parse_size(s):
     value = float(numerator) / float(denominator) if numerator else float(amount)
     kind, factor = _SIZE_UNITS[unit]
     return kind, value * factor
+
+
+# canonical unit -> the GroceryUnit value the database stores. "ct"/"count" has no
+# value in that enum, so a count size reports no unit instead of a guessed one.
+GROCERY_UNITS = {
+    "oz": "OZ", "lb": "LB", "g": "G", "kg": "KG",
+    "floz": "FL_OZ", "gal": "GAL", "ml": "ML", "l": "L",
+    "pt": "PT", "qt": "QT", "dz": "DOZEN", "pk": "PACK",
+}
+
+
+def split_unit_size(unit_size):
+    """(amount, GroceryUnit) for the two size columns, or (None, None).
+
+    A tag prints the size as one string ("1GAL", "5.29 LB"), which is what the scan
+    reports, while the database keeps a number and an enum. Converting here keeps the
+    enum mapping next to the code that produced the string. Returns nothing at all
+    rather than half an answer, so a size that doesn't map stays readable in unitSize.
+    """
+    match = _SIZE_PATTERN.match(re.sub(r"\s+", "", unit_size or "").lower())
+    if not match:
+        return None, None
+    numerator, denominator, amount, unit = match.groups()
+    if denominator == "0":
+        return None, None
+    unit = unit.replace(".", "")
+    grocery_unit = GROCERY_UNITS.get(_SIZE_UNIT_NAMES.get(unit, unit))
+    if grocery_unit is None:
+        return None, None
+    value = float(numerator) / float(denominator) if numerator else float(amount)
+    return round(value, 3), grocery_unit
 
 
 def _normalized_size_match(guess, correct):
