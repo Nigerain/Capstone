@@ -43,6 +43,12 @@ export const colors = {
   // Vote sheet
   confirmedText: '#30562A', // "12 shoppers confirmed"
   warningText: '#9A6A12', // "May be outdated", own-price banner
+  // Thumbs vote pill (Figma "VoteControl")
+  voteBorder: '#D9D6D1', // pill outline on Product Detail
+  voteIcon: '#6B6863', // thumbs before voting
+  voteActive: '#2E8B57', // thumbs up picked, pill outline in Compare Prices
+  voteActiveBg: '#E3F4E6', // pill fill after a thumbs up
+  accurateLabel: '#5E5A55', // "Accurate?"
 } as const;
 
 export const fonts = {

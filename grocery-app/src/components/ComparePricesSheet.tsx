@@ -24,6 +24,7 @@ import {
   formatPrice,
   formatTimeAgo,
 } from '../utils/format';
+import { VoteControl } from './VoteControl';
 import { VoteSheetContent } from './VoteSheetContent';
 
 const SLIDE_MS = 280;
@@ -215,8 +216,12 @@ export function ComparePricesSheet({ visible, item, onClose, onAddPrice }: Props
                     onPress={() => openVote(price)}
                     accessibilityRole="button"
                     accessibilityLabel={`${price.store}, ${formatPrice(price.price)}`}
-                    accessibilityHint="Opens a sheet to confirm this price"
-                    style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                    accessibilityHint="Opens the details for this price"
+                    style={({ pressed }) => [
+                      styles.row,
+                      isBest && styles.rowBest,
+                      pressed && styles.rowPressed,
+                    ]}
                   >
                     <View style={styles.storeIcon}>
                       <Feather name="shopping-cart" size={18} color={colors.text} />
@@ -231,10 +236,9 @@ export function ComparePricesSheet({ visible, item, onClose, onAddPrice }: Props
                           <Text style={typography.badge}>BEST</Text>
                         </View>
                       )}
-                      <Text style={typography.cardTitle}>{formatPrice(price.price)}</Text>
-                      {!isBest && !isSingleStore && (
-                        <Text style={typography.small}>+{formatPrice(price.price - lowest)}</Text>
-                      )}
+                      <Text style={styles.rowPrice}>{formatPrice(price.price)}</Text>
+                      {/* Quick vote; tapping the rest of the row still opens the vote sheet */}
+                      <VoteControl price={price} size="compact" />
                     </View>
                   </Pressable>
                 );
@@ -388,7 +392,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   storeInfo: { flex: 1, gap: 2 },
-  priceColumn: { alignItems: 'flex-end', gap: 2 },
+  priceColumn: { alignItems: 'flex-end', gap: 4 },
+  rowPrice: { fontFamily: fonts.badge, fontSize: 20, color: colors.text },
+  // Figma: the cheapest row is light green, edge to edge.
+  rowBest: {
+    backgroundColor: colors.successRing,
+    marginHorizontal: -20,
+    paddingHorizontal: 20,
+  },
   badge: {
     backgroundColor: colors.badge,
     borderRadius: radius.chip,

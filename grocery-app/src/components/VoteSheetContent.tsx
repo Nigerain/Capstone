@@ -1,6 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import { useQueryClient } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,15 +9,7 @@ import {
   View,
 } from 'react-native';
 
-import {
-  isOwnPrice,
-  removeVote,
-  submitVote,
-  voteErrorMessage,
-  type Vote,
-} from '../services/voteService';
-import { useAuthStore } from '../store/useAuthStore';
-import { useVoteStore } from '../store/useVoteStore';
+import { useVoteOnPrice } from '../hooks/useVoteOnPrice';
 import { colors, fonts } from '../theme';
 import type { Item, Price } from '../types/price';
 import {
@@ -35,60 +26,22 @@ type Props = {
   onAddPrice: () => void; // closes the sheet and opens Add a Price
 };
 
-type Pending = Vote | 'undo' | null;
-
 // The vote side of the Compare Prices sheet, from the Figma frames
 // "Vote Sheet – Is This Price Right?", "– Thanks for Confirming" and
 // "– Your Own Price". "No, the price changed" has no frame yet, so it gets a
 // thank-you in the same style that offers to add the new price.
 // Left out for now: the "+2 reputation" chip (reputation is still tentative).
 export function VoteSheetContent({ item, price, onBack, onAddPrice }: Props) {
-  const queryClient = useQueryClient();
-  const user = useAuthStore((s) => s.user);
-  const override = useVoteStore((s) => s.votes[price.id]);
-  const setVote = useVoteStore((s) => s.setVote);
-
-  const [pending, setPending] = useState<Pending>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // This session's vote wins over what the data says, until the item reloads.
-  const original = price.myVote ?? null;
-  const myVote = override !== undefined ? override : original;
-
-  // Counts as the backend sent them, adjusted for a vote it hasn't seen yet.
-  const confirmed = adjust(
-    price.confirmCount ?? 0,
-    original === 'up',
-    myVote === 'up'
-  );
-  const disputed = adjust(
-    price.disputeCount ?? 0,
-    original === 'down',
-    myVote === 'down'
-  );
-
-  const run = async (next: Pending) => {
-    setError(null);
-    setPending(next);
-    try {
-      if (next === 'undo') await removeVote(price.id);
-      else if (next) await submitVote(price.id, next);
-      setVote(price.id, next === 'undo' ? null : next);
-      // Counts on the product page and in search are now out of date.
-      queryClient.invalidateQueries({ queryKey: ['items'] });
-    } catch (e) {
-      setError(voteErrorMessage(e));
-    } finally {
-      setPending(null);
-    }
-  };
+  // Shared with the thumbs pill, so a vote cast there shows up here too.
+  const { myVote, confirmed, disputed, pending, error, isOwn, run } =
+    useVoteOnPrice(price);
 
   const subtitle = `${item.name} · ${formatBrandSize(item)}`;
   const distance =
     price.distanceMi != null ? formatDistance(price.distanceMi) : null;
 
   // --- Your own price -----------------------------------------------------
-  if (isOwnPrice(price, user)) {
+  if (isOwn) {
     return (
       <>
         <Header title="Your price" subtitle={subtitle} />
@@ -246,15 +199,6 @@ export function VoteSheetContent({ item, price, onBack, onAddPrice }: Props) {
       />
     </>
   );
-}
-
-// A count from the backend, plus or minus a vote it hasn't counted yet.
-function adjust(
-  count: number,
-  wasCounted: boolean,
-  isCounted: boolean
-): number {
-  return Math.max(0, count - (wasCounted ? 1 : 0) + (isCounted ? 1 : 0));
 }
 
 function Header({ title, subtitle }: { title: string; subtitle: string }) {

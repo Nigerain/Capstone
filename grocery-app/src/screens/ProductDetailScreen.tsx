@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ComparePricesSheet } from '../components/ComparePricesSheet';
 import { Bone, Skeleton } from '../components/Skeleton';
 import { StateMessage } from '../components/StateMessage';
+import { VoteControl } from '../components/VoteControl';
 import { isNetworkError, isNotFound } from '../services/api';
 import { useItem } from '../hooks/useItem';
 import type { RootStackParamList } from '../navigation/types';
@@ -86,18 +87,21 @@ export function ProductDetailScreen({ route, navigation }: Props) {
 
         {best ? (
           <View style={styles.bestCard}>
-            <View style={styles.bestBadge}>
-              <Text style={styles.bestBadgeText}>Best price</Text>
+            <View style={styles.bestInfo}>
+              <View style={styles.bestBadge}>
+                <Text style={styles.bestBadgeText}>Best price</Text>
+              </View>
+              <View style={styles.bestPriceRow}>
+                <Text style={styles.bestPrice}>{formatPrice(best.price)}</Text>
+                <Text style={typography.small}>{formatItemUnitPrice(item, best)}</Text>
+              </View>
+              <Text style={typography.meta}>{formatStoreLine(best)}</Text>
             </View>
-            <View style={styles.bestPriceRow}>
-              <Text style={styles.bestPrice}>{formatPrice(best.price)}</Text>
-              <Text style={typography.small}>
-              {formatItemUnitPrice(item, best)}
-              </Text>
+            {/* Vote right here, so people don't have to open Compare Prices */}
+            <View style={styles.bestVote}>
+              <Text style={styles.accurateLabel}>Accurate?</Text>
+              <VoteControl price={best} />
             </View>
-            <Text style={typography.meta}>
-            {formatStoreLine(best)}
-            </Text>
           </View>
         ) : (
           <View style={styles.noPricesCard}>
@@ -252,11 +256,16 @@ const styles = StyleSheet.create({
   image: { width: '70%', height: '70%' },
   brandSize: { marginTop: spacing.xs, fontSize: 15 },
   bestCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: colors.card,
     borderRadius: radius.card,
     padding: spacing.md,
-    gap: spacing.xs,
+    gap: spacing.md,
   },
+  bestInfo: { flex: 1, gap: spacing.xs },
+  bestVote: { alignItems: 'center', gap: spacing.xs },
+  accurateLabel: { fontFamily: fonts.semibold, fontSize: 11, color: colors.accurateLabel },
   bestBadge: {
     alignSelf: 'flex-start',
     backgroundColor: colors.badge,
