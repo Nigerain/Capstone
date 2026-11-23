@@ -10,6 +10,23 @@ export function formatUnitPrice(amount: number, unit: string): string {
   return `${formatPrice(amount)}/${unit}`;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+// Days since a date, with a fraction: 2.5 = two and a half days ago.
+export function daysSince(iso: string): number {
+  return (Date.now() - new Date(iso).getTime()) / DAY_MS;
+}
+
+// How long ago a date was: "today", "2d ago", "3 wks ago".
+// long = true spells it out for sentences: "2 days ago", "3 weeks ago".
+export function formatTimeAgo(iso: string, long = false): string {
+  const days = Math.floor(daysSince(iso));
+  if (days <= 0) return 'today';
+  if (days < 14) return long ? `${days} ${days === 1 ? 'day' : 'days'} ago` : `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  return long ? `${weeks} weeks ago` : `${weeks} wks ago`;
+}
+
 // 0.4 → "0.4 mi"
 export function formatDistance(miles: number): string {
   return `${miles.toFixed(1)} mi`;

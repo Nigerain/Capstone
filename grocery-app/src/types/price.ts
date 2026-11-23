@@ -13,9 +13,12 @@ export interface Price {
   submittedAt: string; // date the price was recorded
   // Voting and reputation: not sent by the backend yet
   submittedBy?: string;
+  submitterId?: string; // Firebase UID, to tell "your own price" apart
   submitterReputation?: number;
   confirmCount?: number;
   disputeCount?: number;
+  lastConfirmedAt?: string; // date of the latest "still accurate" vote
+  myVote?: 'up' | 'down' | null; // the signed-in user's vote, if any
 }
 
 export interface Item {

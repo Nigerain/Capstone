@@ -40,6 +40,9 @@ export const colors = {
   // Price Posted screen
   closeButton: '#DCDBDB', // round X button
   successRing: '#D7EDCB', // light green ring around the check
+  // Vote sheet
+  confirmedText: '#30562A', // "12 shoppers confirmed"
+  warningText: '#9A6A12', // "May be outdated", own-price banner
 } as const;
 
 export const fonts = {
