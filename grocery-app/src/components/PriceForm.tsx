@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -24,6 +23,7 @@ import { useSubmitPrice } from '../hooks/useSubmitPrice';
 import { guessStore } from '../services/storeService';
 import { isAuthError, submitErrorMessage } from '../services/submitService';
 import { usePickerStore } from '../store/usePickerStore';
+import type { RootStackParamList } from '../navigation/types';
 import type { ScanPhoto } from '../store/useScanStore';
 import { colors, fonts, spacing, typography } from '../theme';
 import type { ScanResult } from '../types/scan';
@@ -36,7 +36,10 @@ type Props = {
   // "back" (chevron) mid-flow, "close" (X) when it's the first screen of its own.
   leading: 'back' | 'close';
   onLeadingPress: () => void;
-  onSubmitted: () => void; // after a successful submit
+  // After a successful submit, with what to show on Price Posted.
+  onSubmitted: (
+    posted: Omit<RootStackParamList['PricePosted'], 'fromScan'>
+  ) => void;
 };
 
 type FormValues = {
@@ -154,10 +157,11 @@ export function PriceForm({
       return;
     }
 
+    let saved;
     try {
       // Mock store ids ("store-key-food") need replacing with real ones
       // before EXPO_PUBLIC_USE_MOCK_SUBMIT=false can work.
-      await submit.mutateAsync({
+      saved = await submit.mutateAsync({
         itemName: form.itemName,
         brand: form.brand,
         unitSize: form.unitSize,
@@ -173,13 +177,15 @@ export function PriceForm({
       return;
     }
 
-    Alert.alert(
-      form.sharePublicly ? 'Price posted' : 'Price saved',
-      form.sharePublicly
-        ? 'Thanks for helping others save nearby.'
-        : 'Only you can see this price.',
-      [{ text: 'OK', onPress: onSubmitted }]
-    );
+    onSubmitted({
+      itemId: saved.itemId || null,
+      itemName: form.itemName.trim(),
+      brand: form.brand.trim() || null,
+      unitSize: form.unitSize.trim() || null,
+      storeName: store.name,
+      price: saved.price,
+      isPublic: saved.isPublic,
+    });
   });
 
   const brandSize = [values.brand, values.unitSize].filter(Boolean).join(' · ');

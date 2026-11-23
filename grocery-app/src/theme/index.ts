@@ -37,6 +37,9 @@ export const colors = {
   pickerRowBorder: '#E4E0DE',
   pickerSelected: '#FFFBF0', // selected row fill; outline is `scanned`
   radioBorder: '#CFCACA', // empty radio circle
+  // Price Posted screen
+  closeButton: '#DCDBDB', // round X button
+  successRing: '#D7EDCB', // light green ring around the check
 } as const;
 
 export const fonts = {

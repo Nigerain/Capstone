@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AddPriceScreen } from '../screens/AddPriceScreen';
 import { CameraScreen } from '../screens/CameraScreen';
 import { LoginScreen } from '../screens/LoginScreen';
+import { PricePostedScreen } from '../screens/PricePostedScreen';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
 import { ScanConfirmScreen } from '../screens/ScanConfirmScreen';
 import { ScanProblemScreen } from '../screens/ScanProblemScreen';
@@ -64,6 +65,11 @@ export function RootNavigator() {
         name="StorePicker"
         component={StorePickerScreen}
         options={{ presentation: 'modal' }}
+      />
+      <Stack.Screen
+        name="PricePosted"
+        component={PricePostedScreen}
+        options={{ presentation: 'modal', gestureEnabled: false }}
       />
       <Stack.Screen
         name="SearchRadius"

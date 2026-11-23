@@ -2,6 +2,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { PriceForm } from '../components/PriceForm';
 import type { RootStackParamList } from '../navigation/types';
+import { showPricePosted } from './PricePostedScreen';
 import { useScanStore } from '../store/useScanStore';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ManualEntry'>;
@@ -24,7 +25,9 @@ export function SubmitPriceScreen({ navigation }: Props) {
       photo={null}
       leading="close"
       onLeadingPress={close}
-      onSubmitted={close}
+      onSubmitted={(posted) =>
+        showPricePosted(navigation, { ...posted, fromScan: false })
+      }
     />
   );
 }

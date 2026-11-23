@@ -1,6 +1,7 @@
 import type { ApiSubmitPrice, ApiSubmittedPrice } from '../types/api';
 import { ApiError, apiRequest } from './api';
 import { getAuthToken } from './auth';
+import { searchItems as searchMockItems } from './mockPriceService';
 
 // Submitting has its own switch, like scanning, because the real endpoint
 // isn't ready for this request yet (see ApiSubmitPrice in types/api.ts).
@@ -99,9 +100,13 @@ async function mockSubmit(body: ApiSubmitPrice): Promise<ApiSubmittedPrice> {
   if (status !== undefined)
     throw new ApiError(`mock: submit failed (${status})`, status);
 
+  // Stand-in for the backend's fuzzy match, so "View item" on Price Posted
+  // opens a real mock product. No match = a new item with no page yet.
+  const [match] = await searchMockItems(body.item.itemName);
+
   return {
     id: `mock-price-${Date.now()}`,
-    itemId: 'mock-item',
+    itemId: match?.id ?? '',
     storeId: body.storeId,
     userId: 'mock-user',
     price: body.price,

@@ -2,6 +2,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
 import { PriceForm } from '../components/PriceForm';
 import type { RootStackParamList } from '../navigation/types';
+import { showPricePosted } from './PricePostedScreen';
 import { useScanStore } from '../store/useScanStore';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ScanConfirm'>;
@@ -11,7 +12,6 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ScanConfirm'>;
 export function ScanConfirmScreen({ navigation }: Props) {
   const photo = useScanStore((s) => s.photo);
   const result = useScanStore((s) => s.result);
-  const clearScan = useScanStore((s) => s.clear);
 
   return (
     <PriceForm
@@ -19,10 +19,10 @@ export function ScanConfirmScreen({ navigation }: Props) {
       photo={photo}
       leading="back"
       onLeadingPress={() => navigation.goBack()}
-      onSubmitted={() => {
-        clearScan();
-        navigation.popToTop();
-      }}
+      // Price Posted shows the photo, then clears the scan when it closes.
+      onSubmitted={(posted) =>
+        showPricePosted(navigation, { ...posted, fromScan: true })
+      }
     />
   );
 }
