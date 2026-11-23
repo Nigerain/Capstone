@@ -1,9 +1,11 @@
 import { Feather } from '@expo/vector-icons';
-import { useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Animated,
+  Dimensions,
   Easing,
   Modal,
+  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -27,6 +29,15 @@ import { VoteSheetContent } from './VoteSheetContent';
 const SLIDE_MS = 280;
 // Figma marks prices this old "May be outdated".
 const OUTDATED_DAYS = 14;
+// One height for both pages, so the sheet doesn't jump when sliding.
+// About Figma's Compare Prices size; never shorter than the vote sheet needs
+// on most phones, never taller than most of the screen.
+const SHEET_SCREEN_SHARE = 0.6;
+const SHEET_MIN = 500;
+const SHEET_MAX_SCREEN_SHARE = 0.88;
+// Swipe down this far (points), or flick this fast, to close.
+const DISMISS_DISTANCE = 120;
+const DISMISS_VELOCITY = 1;
 
 type Props = {
   visible: boolean;
@@ -37,53 +48,91 @@ type Props = {
 
 // Tapping a store row slides the list left and the vote sheet in from the
 // right, inside the same sheet (a second Modal on top is unreliable on iOS).
+// Dragging the top of the sheet (the bar and header) down closes it.
 export function ComparePricesSheet({ visible, item, onClose, onAddPrice }: Props) {
   const insets = useSafeAreaInsets();
   const { width, height: windowHeight } = useWindowDimensions();
+  const sheetHeight = Math.round(
+    Math.min(
+      Math.max(windowHeight * SHEET_SCREEN_SHARE, SHEET_MIN),
+      windowHeight * SHEET_MAX_SCREEN_SHARE
+    )
+  );
 
   // The price being voted on; stays set while sliding back, then clears.
   const [selected, setSelected] = useState<Price | null>(null);
-  // 0 = list showing, 1 = vote sheet showing. Drives the slide and the height.
+  // 0 = list showing, 1 = vote sheet showing.
   const [progress] = useState(() => new Animated.Value(0));
-  const [listHeight, setListHeight] = useState(0);
-  const [voteHeight, setVoteHeight] = useState(0);
-  // Wait to slide until the vote page has measured itself, so the sheet
-  // can grow or shrink to fit it smoothly.
-  const opening = useRef(false);
+  // How far the sheet is dragged down, in points.
+  const [dragY] = useState(() => new Animated.Value(0));
+
+  // Set when a swipe has carried the sheet off screen; the effect below then
+  // tells the parent to close. (The drag handlers are made once, so they
+  // can't call the latest onClose themselves.)
+  const [swipedAway, setSwipedAway] = useState(false);
+  useEffect(() => {
+    if (swipedAway) onClose();
+  }, [swipedAway, onClose]);
+
+  const [pan] = useState(() => {
+    const springBack = () =>
+      Animated.spring(dragY, { toValue: 0, bounciness: 4, useNativeDriver: true }).start();
+    return PanResponder.create({
+      // Taps (X, back chevron) still work: only a downward drag takes over.
+      onMoveShouldSetPanResponder: (_, g) => g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderMove: (_, g) => dragY.setValue(Math.max(0, g.dy)),
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > DISMISS_DISTANCE || g.vy > DISMISS_VELOCITY) {
+          Animated.timing(dragY, {
+            toValue: Dimensions.get('window').height,
+            duration: 200,
+            easing: Easing.in(Easing.quad),
+            useNativeDriver: true,
+          }).start(() => setSwipedAway(true));
+        } else {
+          springBack();
+        }
+      },
+      onPanResponderTerminate: springBack,
+    });
+  });
 
   const slideTo = (toValue: 0 | 1, done?: () => void) =>
     Animated.timing(progress, {
       toValue,
       duration: SLIDE_MS,
       easing: Easing.out(Easing.cubic),
-      useNativeDriver: false, // height can't use the native driver
+      useNativeDriver: true,
     }).start(done);
 
   const openVote = (price: Price) => {
-    opening.current = true;
-    setVoteHeight(0);
     setSelected(price);
+    slideTo(1);
   };
 
   const backToList = () => slideTo(0, () => setSelected(null));
 
-  // Every time the sheet opens, it starts on the list. Done while rendering
-  // (not in an effect), so the first frame already shows the list.
+  // Every time the sheet opens, it starts on the list, back in place. Done
+  // while rendering (not in an effect), so the first frame is already right.
   const [wasVisible, setWasVisible] = useState(visible);
   if (visible !== wasVisible) {
     setWasVisible(visible);
     if (visible) {
       progress.setValue(0);
+      dragY.setValue(0);
       setSelected(null);
+      setSwipedAway(false);
     }
   }
 
-  const sheetHeight =
-    listHeight > 0 && voteHeight > 0
-      ? progress.interpolate({ inputRange: [0, 1], outputRange: [listHeight, voteHeight] })
-      : undefined;
   const listX = progress.interpolate({ inputRange: [0, 1], outputRange: [0, -width] });
   const voteX = progress.interpolate({ inputRange: [0, 1], outputRange: [width, 0] });
+  // The dimmed background fades as the sheet is dragged away.
+  const backdropOpacity = dragY.interpolate({
+    inputRange: [0, sheetHeight],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
   const sorted = [...item.prices].sort((a, b) => a.price - b.price);
   const lowest = sorted[0]?.price ?? 0;
   const isSingleStore = sorted.length === 1;
@@ -99,123 +148,123 @@ export function ComparePricesSheet({ visible, item, onClose, onAddPrice }: Props
     >
       <View style={styles.overlay}>
         {/* Tapping the dimmed area closes the sheet */}
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={onClose}
-          accessibilityLabel="Close compare prices"
-        />
+        <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={onClose}
+            accessibilityLabel="Close compare prices"
+          />
+        </Animated.View>
 
-        <Animated.View style={[styles.sheet, sheetHeight && { height: sheetHeight }]}>
+        <Animated.View
+          style={[styles.sheet, { height: sheetHeight, transform: [{ translateY: dragY }] }]}
+        >
           <Animated.View
             style={[
+              styles.page,
               styles.listPage,
               { paddingBottom: insets.bottom + spacing.lg, transform: [{ translateX: listX }] },
             ]}
-            onLayout={(e) => setListHeight(e.nativeEvent.layout.height)}
             // Hide the off-screen list from screen readers while voting.
             importantForAccessibility={selected ? 'no-hide-descendants' : 'auto'}
             accessibilityElementsHidden={!!selected}
           >
-          <View style={styles.handle} />
+            {/* Drag area: the bar and the header */}
+            <View {...pan.panHandlers}>
+              <View style={styles.handleZone}>
+                <View style={styles.handle} />
+              </View>
 
-          <View style={styles.headerRow}>
-            <Text style={typography.heading}>Compare Prices</Text>
-            <Pressable
-              onPress={onClose}
-              hitSlop={10}
-              accessibilityRole="button"
-              accessibilityLabel="Close compare prices"
-            >
-              <Feather name="x" size={22} color={colors.text} />
-            </Pressable>
-          </View>
-          <Text style={typography.meta}>
-            {item.name} · {formatBrandSize(item)}
-          </Text>
-          {sorted.length > 0 && (
-            <Text style={[typography.small, styles.sortNote]}>
-              {sorted.length > 1
-                ? 'Sorted by lowest price · Tap a price to confirm it'
-                : 'Tap the price to confirm it'}
-            </Text>
-          )}
-
-          {sorted.length === 0 && (
-            <View style={styles.emptyBox}>
-              <Text style={typography.cardTitle}>No prices to compare yet</Text>
-              <Text style={typography.meta}>Add the price you saw and it will show up here.</Text>
-            </View>
-          )}
-
-          <ScrollView style={[styles.list, { maxHeight: windowHeight * 0.5 }]}>
-            {sorted.map((price) => {
-              // With one store there's nothing to beat, so no BEST badge.
-              const isBest = !isSingleStore && price.price === lowest;
-              return (
+              <View style={styles.headerRow}>
+                <Text style={typography.heading}>Compare Prices</Text>
                 <Pressable
-                  key={price.id}
-                  onPress={() => openVote(price)}
+                  onPress={onClose}
+                  hitSlop={10}
                   accessibilityRole="button"
-                  accessibilityLabel={`${price.store}, ${formatPrice(price.price)}`}
-                  accessibilityHint="Opens a sheet to confirm this price"
-                  style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                  accessibilityLabel="Close compare prices"
                 >
-                  <View style={styles.storeIcon}>
-                    <Feather name="shopping-cart" size={18} color={colors.text} />
-                  </View>
-                  <View style={styles.storeInfo}>
-                    <Text style={typography.cardTitle}>{price.store}</Text>
-                    <RowMeta price={price} />
-                  </View>
-                  <View style={styles.priceColumn}>
-                    {isBest && (
-                      <View style={styles.badge}>
-                        <Text style={typography.badge}>BEST</Text>
-                      </View>
-                    )}
-                    <Text style={typography.cardTitle}>{formatPrice(price.price)}</Text>
-                    {!isBest && !isSingleStore && (
-                      <Text style={typography.small}>+{formatPrice(price.price - lowest)}</Text>
-                    )}
-                  </View>
+                  <Feather name="x" size={22} color={colors.text} />
                 </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          {sorted.length <= 1 && (
-            <View style={styles.footer}>
-              {isSingleStore && (
-                <Text style={[typography.meta, styles.footerText]}>
-                  Only one store so far. Seen it somewhere else?
+              </View>
+              <Text style={typography.meta}>
+                {item.name} · {formatBrandSize(item)}
+              </Text>
+              {sorted.length > 0 && (
+                <Text style={[typography.small, styles.sortNote]}>
+                  {sorted.length > 1
+                    ? 'Sorted by lowest price · Tap a price to confirm it'
+                    : 'Tap the price to confirm it'}
                 </Text>
               )}
-              <Pressable
-                onPress={onAddPrice}
-                accessibilityRole="button"
-                style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
-              >
-                <Text style={styles.addButtonText}>Add a Price</Text>
-              </Pressable>
             </View>
-          )}
+
+            {sorted.length === 0 && (
+              <View style={styles.emptyBox}>
+                <Text style={typography.cardTitle}>No prices to compare yet</Text>
+                <Text style={typography.meta}>Add the price you saw and it will show up here.</Text>
+              </View>
+            )}
+
+            <ScrollView style={styles.list}>
+              {sorted.map((price) => {
+                // With one store there's nothing to beat, so no BEST badge.
+                const isBest = !isSingleStore && price.price === lowest;
+                return (
+                  <Pressable
+                    key={price.id}
+                    onPress={() => openVote(price)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${price.store}, ${formatPrice(price.price)}`}
+                    accessibilityHint="Opens a sheet to confirm this price"
+                    style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                  >
+                    <View style={styles.storeIcon}>
+                      <Feather name="shopping-cart" size={18} color={colors.text} />
+                    </View>
+                    <View style={styles.storeInfo}>
+                      <Text style={typography.cardTitle}>{price.store}</Text>
+                      <RowMeta price={price} />
+                    </View>
+                    <View style={styles.priceColumn}>
+                      {isBest && (
+                        <View style={styles.badge}>
+                          <Text style={typography.badge}>BEST</Text>
+                        </View>
+                      )}
+                      <Text style={typography.cardTitle}>{formatPrice(price.price)}</Text>
+                      {!isBest && !isSingleStore && (
+                        <Text style={typography.small}>+{formatPrice(price.price - lowest)}</Text>
+                      )}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            {sorted.length <= 1 && (
+              <View style={styles.footer}>
+                {isSingleStore && (
+                  <Text style={[typography.meta, styles.footerText]}>
+                    Only one store so far. Seen it somewhere else?
+                  </Text>
+                )}
+                <Pressable
+                  onPress={onAddPrice}
+                  accessibilityRole="button"
+                  style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.addButtonText}>Add a Price</Text>
+                </Pressable>
+              </View>
+            )}
           </Animated.View>
 
           {selected && (
             <Animated.View
-              style={[
-                styles.votePage,
-                { paddingBottom: insets.bottom + 34, transform: [{ translateX: voteX }] },
-              ]}
-              onLayout={(e) => {
-                setVoteHeight(e.nativeEvent.layout.height);
-                if (opening.current) {
-                  opening.current = false;
-                  slideTo(1);
-                }
-              }}
+              style={[styles.page, styles.votePage, { transform: [{ translateX: voteX }] }]}
             >
-              <View style={styles.voteHandleRow}>
+              {/* Drag area: the bar */}
+              <View style={styles.voteHandleRow} {...pan.panHandlers}>
                 <Pressable
                   onPress={backToList}
                   hitSlop={10}
@@ -227,12 +276,21 @@ export function ComparePricesSheet({ visible, item, onClose, onAddPrice }: Props
                 </Pressable>
                 <View style={styles.voteHandle} />
               </View>
-              <VoteSheetContent
-                item={item}
-                price={selected}
-                onBack={backToList}
-                onAddPrice={onAddPrice}
-              />
+              {/* Scrolls only if a small phone can't fit the vote sheet. */}
+              <ScrollView
+                contentContainerStyle={[
+                  styles.voteContent,
+                  { paddingBottom: insets.bottom + 34 },
+                ]}
+                showsVerticalScrollIndicator={false}
+              >
+                <VoteSheetContent
+                  item={item}
+                  price={selected}
+                  onBack={backToList}
+                  onAddPrice={onAddPrice}
+                />
+              </ScrollView>
             </Animated.View>
           )}
         </Animated.View>
@@ -267,6 +325,13 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1,
     justifyContent: 'flex-end',
+  },
+  backdrop: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
   },
   sheet: {
@@ -275,34 +340,17 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     overflow: 'hidden',
   },
-  listPage: {
-    paddingHorizontal: 20,
-    paddingTop: spacing.sm,
-  },
-  // Sits beside the list, off to the right, until it slides in.
-  votePage: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    gap: 16,
-    paddingHorizontal: 24,
-    paddingTop: 12,
-    backgroundColor: colors.pickerRow,
-  },
-  voteHandleRow: { alignItems: 'center', justifyContent: 'center', minHeight: 22 },
-  voteHandle: { width: 44, height: 5, borderRadius: 3, backgroundColor: colors.radioBorder },
-  backButton: { position: 'absolute', left: 0 },
-  rowPressed: { opacity: 0.6 },
-  confirmed: { color: colors.positive },
-  outdated: { color: colors.warningText },
+  // Both pages fill the sheet; the vote page starts off to the right.
+  page: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
+  listPage: { paddingHorizontal: 20 },
+  votePage: { backgroundColor: colors.pickerRow },
+  // Taller than the bar itself, so it's easy to grab.
+  handleZone: { alignItems: 'center', paddingTop: spacing.sm, paddingBottom: spacing.md },
   handle: {
-    alignSelf: 'center',
     width: 47,
     height: 4,
     borderRadius: 2,
     backgroundColor: colors.card,
-    marginBottom: spacing.md,
   },
   headerRow: {
     flexDirection: 'row',
@@ -310,7 +358,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   sortNote: { marginTop: spacing.sm },
-  list: { marginTop: spacing.sm, flexGrow: 0 },
+  list: { marginTop: spacing.sm, flex: 1 },
   emptyBox: { marginTop: spacing.lg, gap: spacing.xs },
   footer: { marginTop: spacing.lg, gap: spacing.md },
   footerText: { textAlign: 'center' },
@@ -347,4 +395,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 1,
   },
+  voteHandleRow: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 16,
+  },
+  voteHandle: { width: 44, height: 5, borderRadius: 3, backgroundColor: colors.radioBorder },
+  backButton: { position: 'absolute', left: 24, top: 12 },
+  voteContent: { gap: 16, paddingHorizontal: 24 },
+  rowPressed: { opacity: 0.6 },
+  confirmed: { color: colors.positive },
+  outdated: { color: colors.warningText },
 });
