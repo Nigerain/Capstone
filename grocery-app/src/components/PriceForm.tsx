@@ -20,11 +20,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useSubmitPrice } from '../hooks/useSubmitPrice';
 import { guessStore } from '../services/storeService';
+import { isAuthError, submitErrorMessage } from '../services/submitService';
 import { usePickerStore } from '../store/usePickerStore';
 import type { ScanPhoto } from '../store/useScanStore';
 import { colors, fonts, spacing, typography } from '../theme';
-import type { ApiCreatePrice } from '../types/api';
 import type { ScanResult } from '../types/scan';
 import { formatDistance } from '../utils/format';
 
@@ -138,40 +139,46 @@ export function PriceForm({
     }
   }, [result, scanned.price, setFocus]);
 
+  const submit = useSubmitPrice();
+  // Why the last submit failed, shown above the button. Nothing was saved
+  // then, and every field keeps what the user typed so they can retry.
+  const [submitError, setSubmitError] = useState<{
+    message: string;
+    needsLogin: boolean;
+  } | null>(null);
+
   const onSubmit = handleSubmit(async (form) => {
+    setSubmitError(null);
     if (!store) {
       setStoreMissing(true);
       return;
     }
 
-    // TODO(backend): the item is free text for now. The backend should
-    // fuzzy-match { itemName, brand, unitSize } to an existing item (or create
-    // one) and return its id. Then POST /api/v1/prices with this body.
-    // Mock store ids ("store-key-food") need replacing with real ones first.
-    const payload: Omit<ApiCreatePrice, 'itemId'> & {
-      item: Pick<FormValues, 'itemName' | 'brand' | 'unitSize'>;
-    } = {
-      item: {
+    try {
+      // Mock store ids ("store-key-food") need replacing with real ones
+      // before EXPO_PUBLIC_USE_MOCK_SUBMIT=false can work.
+      await submit.mutateAsync({
         itemName: form.itemName,
         brand: form.brand,
         unitSize: form.unitSize,
-      },
-      storeId: store.id,
-      price: Number(form.price),
-      isPublic: form.sharePublicly,
-    };
-    if (__DEV__) console.log('[PriceForm] would submit', payload);
+        storeId: store.id,
+        price: Number(form.price),
+        isPublic: form.sharePublicly,
+      });
+    } catch (error) {
+      setSubmitError({
+        message: submitErrorMessage(error),
+        needsLogin: isAuthError(error),
+      });
+      return;
+    }
 
-    await new Promise((resolve) => setTimeout(resolve, 600));
     Alert.alert(
-      'Price ready',
-      'Submitting isn’t connected to the backend yet, so nothing was saved.',
-      [
-        {
-          text: 'OK',
-          onPress: onSubmitted,
-        },
-      ]
+      form.sharePublicly ? 'Price posted' : 'Price saved',
+      form.sharePublicly
+        ? 'Thanks for helping others save nearby.'
+        : 'Only you can see this price.',
+      [{ text: 'OK', onPress: onSubmitted }]
     );
   });
 
@@ -426,6 +433,26 @@ export function PriceForm({
         </ScrollView>
 
         <View style={styles.footer}>
+          {submitError && (
+            <View style={styles.submitError} accessibilityLiveRegion="polite">
+              <Feather name="alert-circle" size={15} color={colors.error} />
+              <Text style={styles.submitErrorText}>
+                {submitError.message}
+                {submitError.needsLogin && (
+                  <Text
+                    style={styles.submitErrorLink}
+                    accessibilityRole="link"
+                    onPress={() =>
+                      navigation.navigate('Login', { then: 'back' })
+                    }
+                  >
+                    {' '}
+                    Log in
+                  </Text>
+                )}
+              </Text>
+            </View>
+          )}
           <Pressable
             onPress={() => onSubmit()}
             disabled={isSubmitting}
@@ -750,6 +777,24 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.md,
     alignItems: 'center',
+  },
+  submitError: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+    alignSelf: 'stretch',
+    marginBottom: spacing.sm,
+  },
+  submitErrorText: {
+    flex: 1,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.error,
+  },
+  submitErrorLink: {
+    fontFamily: fonts.bodyBold,
+    textDecorationLine: 'underline',
   },
   submit: {
     alignSelf: 'stretch',

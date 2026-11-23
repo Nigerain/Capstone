@@ -45,14 +45,41 @@ export interface ApiStore {
     unitSize: string;
   }
   
-  // POST /api/v1/prices request body (requires sign-in)
+  // POST /api/v1/prices request body as the backend has it today (requires sign-in).
+  // The app can't send this yet: the item is free text, so there's no itemId.
   export interface ApiCreatePrice {
     itemId: string;
     storeId: string;
     price: number;
     isPublic: boolean;
   }
-  
+
+  // PROPOSED POST /api/v1/prices request body (to agree on with Ceren and Dixon).
+  // Same as ApiCreatePrice, but with the item as typed instead of an itemId:
+  // the backend fuzzy-matches it to an existing item, or creates one
+  // (CreateItem), then saves the price (CreatePrice).
+  export interface ApiSubmitPrice {
+    item: {
+      itemName: string;
+      brand: string | null;
+      unitSize: string | null; // as typed, e.g. "1.5 lb"
+    };
+    storeId: string;
+    price: number;
+    isPublic: boolean;
+  }
+
+  // POST /api/v1/prices response (PriceResponse in backend/app/schemas/price.py)
+  export interface ApiSubmittedPrice {
+    id: string;
+    itemId: string;
+    storeId: string;
+    userId: string;
+    price: number;
+    dateRecorded: string; // e.g. "2026-11-23"
+    isPublic: boolean;
+  }
+
   // Simple confirmation responses, e.g. {"message": "Price submitted successfully"}
   export interface ApiMessage {
     message: string;

@@ -60,7 +60,11 @@ export function LoginScreen({ navigation, route }: Props) {
     try {
       const user = await logIn({ ...values, email: values.email.trim() });
       setUser(user);
-      if (route.params?.then === 'AddPrice') {
+      if (route.params?.then === 'back') {
+        // Their session ended while submitting a price: return to the form,
+        // which still holds what they typed.
+        navigation.goBack();
+      } else if (route.params?.then === 'AddPrice') {
         // They tapped "+" (or their session ended mid-scan): open Add a Price.
         navigation.popToTop();
         navigation.navigate('AddPrice');

@@ -62,7 +62,11 @@ export function SignupScreen({ navigation, route }: Props) {
         email: values.email.trim(),
       });
       setUser(user);
-      if (route.params?.then === 'AddPrice') {
+      if (route.params?.then === 'back') {
+        // Came from the price form's "Log in" link, then switched to Sign up
+        // (which replaced Log in): return to the form.
+        navigation.goBack();
+      } else if (route.params?.then === 'AddPrice') {
         // They tapped "+": close Sign up, then open Add a Price.
         navigation.popToTop();
         navigation.navigate('AddPrice');

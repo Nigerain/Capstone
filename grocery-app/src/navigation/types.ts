@@ -27,8 +27,10 @@ export type RootStackParamList = {
   ProductDetail: { itemId: string };
   // `then: 'AddPrice'` = they tapped "+" while signed out; open Add a Price
   // after they sign in, instead of the Profile tab.
-  Signup: { then?: 'AddPrice' } | undefined;
-  Login: { then?: 'AddPrice' } | undefined;
+  // `then: 'back'` = their session expired on the price form; go back to
+  // it after logging in (or signing up, if they switch to Sign up).
+  Signup: { then?: 'AddPrice' | 'back' } | undefined;
+  Login: { then?: 'AddPrice' | 'back' } | undefined;
 };
 
 // Lets useNavigation() know every screen name without extra typing.
