@@ -53,7 +53,8 @@
         {
           "locationWhenInUsePermission": "Grocery PricePal uses your location to calculate distances to stores."
         }
-      ]
+      ],
+      "expo-status-bar"
     ]
   }
 }

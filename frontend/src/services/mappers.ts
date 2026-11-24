@@ -12,7 +12,7 @@ export function normalizeId(id: string): string {
 const UNIT_ALIASES: Record<string, string> = {
   lb: 'lb', lbs: 'lb', pound: 'lb', pounds: 'lb',
   oz: 'oz', ounce: 'oz', ounces: 'oz',
-  'fl oz': 'fl oz', floz: 'fl oz',
+  'fl oz': 'fl oz', floz: 'fl oz', fl_oz: 'fl oz',
   gal: 'gal', gallon: 'gal', gallons: 'gal',
   ct: 'ct', count: 'ct', pk: 'ct', pack: 'ct',
   ea: 'each', each: 'each',
@@ -64,7 +64,7 @@ export function toItem(apiItem: ApiItem, entries: ApiPriceEntry[] = []): Item {
   return {
     id: normalizeId(apiItem.id),
     name: apiItem.itemName,
-    brand: apiItem.brand,
+    brand: apiItem.brand ?? '',
     size,
     sizeUnit,
     prices: entries.map(toPrice),

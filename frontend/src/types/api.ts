@@ -4,13 +4,15 @@
 export interface ApiStore {
     id: string;
     storeName: string;
-    storeLocation: string; // e.g. "New York, NY", a city, not coordinates
+    storeLocation: string | null; // display address; coordinates are separate
+    latitude?: number | null;
+    longitude?: number | null;
   }
   
   export interface ApiItem {
     id: string;
     itemName: string;
-    brand: string;
+    brand: string | null;
     // Two size formats exist right now; the converter reads whichever is present.
     unitSize?: string | null; // Ceren's: "6 oz" (currently comes back null)
     unitAmount?: number | null; // Dixon's: 1
@@ -41,8 +43,10 @@ export interface ApiStore {
   // POST /api/v1/items request body (requires sign-in)
   export interface ApiCreateItem {
     itemName: string;
-    brand: string;
-    unitSize: string;
+    brand?: string | null;
+    unitAmount?: number | null;
+    unit?: 'LB' | 'OZ' | 'G' | 'KG' | 'ML' | 'L' | 'FL_OZ' | 'PT' | 'QT' |
+      'GAL' | 'EACH' | 'DOZEN' | 'SERVING' | 'PACK' | 'LOAF' | null;
   }
   
   // POST /api/v1/prices request body (requires sign-in)

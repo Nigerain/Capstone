@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Text,
   View,
+  type TextInputInstance,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -30,16 +31,17 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Signup'>;
 
 // Built from the Figma frame "Signup Screen".
 const CONTENT_WIDTH = 312;
-const MIN_PASSWORD = 8;
+const MIN_PASSWORD = 10;
+const PASSWORD_RULES = `Use at least ${MIN_PASSWORD} characters, with an uppercase letter, a lowercase letter, and a symbol.`;
 
 export function SignupScreen({ navigation, route }: Props) {
   const setUser = useAuthStore((s) => s.setUser);
   const [showPassword, setShowPassword] = useState(false);
 
   // Lets "next" on the keyboard jump to the following field.
-  const lastNameRef = useRef<import('react').ComponentRef<typeof import('react-native').TextInput>>(null);
-  const emailRef = useRef<import('react').ComponentRef<typeof import('react-native').TextInput>>(null);
-  const passwordRef = useRef<import('react').ComponentRef<typeof import('react-native').TextInput>>(null);
+  const lastNameRef = useRef<TextInputInstance>(null);
+  const emailRef = useRef<TextInputInstance>(null);
+  const passwordRef = useRef<TextInputInstance>(null);
 
   const {
     control,
@@ -60,7 +62,11 @@ export function SignupScreen({ navigation, route }: Props) {
         email: values.email.trim(),
       });
       setUser(user);
-      if (route.params?.then === 'AddPrice') {
+      if (route.params?.then === 'back') {
+        // Came from the price form's "Log in" link, then switched to Sign up
+        // (which replaced Log in): return to the form.
+        navigation.goBack();
+      } else if (route.params?.then === 'AddPrice') {
         // They tapped "+": close Sign up, then open Add a Price.
         navigation.popToTop();
         navigation.navigate('AddPrice');
@@ -194,11 +200,12 @@ export function SignupScreen({ navigation, route }: Props) {
                 control={control}
                 name="password"
                 rules={{
-                  minLength: {
-                    value: MIN_PASSWORD,
-                    message: `Use at least ${MIN_PASSWORD} characters.`,
-                  },
-                  required: `Use at least ${MIN_PASSWORD} characters.`,
+                  validate: (v) =>
+                    (v.length >= MIN_PASSWORD &&
+                      /[a-z]/.test(v) &&
+                      /[A-Z]/.test(v) &&
+                      /[^A-Za-z0-9]/.test(v)) ||
+                    PASSWORD_RULES,
                 }}
                 render={({ field: { onChange, onBlur, value } }) => (
                   <FormField

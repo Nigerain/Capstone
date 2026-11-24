@@ -18,16 +18,13 @@ export async function searchItems(query: string): Promise<Item[]> {
     token,
   );
 
-  // Search results don't include prices, so load each item's price history.
-  // TEMPORARY: one extra request per result, until search includes the lowest price.
-  // allSettled runs them all at once, and one failure doesn't break the whole search.
-  const histories = await Promise.allSettled(
+  // Get prices for each item found in search
+  const histories = await Promise.all(
     results.map((item) => fetchPriceHistory(item.id, token)),
   );
 
   return results.map((item, i) => {
-    const history = histories[i];
-    return toItem(item, history.status === 'fulfilled' ? history.value.prices : []);
+    return toItem(item, histories[i].prices);
   });
 }
 

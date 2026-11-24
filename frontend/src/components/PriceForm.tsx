@@ -1,9 +1,9 @@
 import { Feather } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { useEffect, useState } from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import {
   ActivityIndicator,
-  Alert,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -19,10 +19,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { guessStore } from '../services/scanService';
+import { useSubmitPrice } from '../hooks/useSubmitPrice';
+import { isAuthError, submitErrorMessage } from '../services/submitService';
+import { usePickerStore } from '../store/usePickerStore';
+import type { RootStackParamList } from '../navigation/types';
 import type { ScanPhoto } from '../store/useScanStore';
 import { colors, fonts, spacing, typography } from '../theme';
-import type { GuessedStore, ScanResult } from '../types/scan';
+import type { ScanResult } from '../types/scan';
 import { formatDistance } from '../utils/format';
 
 type Props = {
@@ -32,7 +35,10 @@ type Props = {
   // "back" (chevron) mid-flow, "close" (X) when it's the first screen of its own.
   leading: 'back' | 'close';
   onLeadingPress: () => void;
-  onSubmitted: () => void; // after a successful submit
+  // After a successful submit, with what to show on Price Posted.
+  onSubmitted: (
+    posted: Omit<RootStackParamList['PricePosted'], 'fromScan'>
+  ) => void;
 };
 
 type FormValues = {
@@ -59,7 +65,6 @@ function toFormValues(result: ScanResult | null): FormValues {
   };
 }
 
-// The price form shared by two Figma frames:
 // - "Confirmed Scan Screen" (scan given): fields OCR filled get a yellow outline
 //   and "SCANNED"; fields it couldn't fill get an orange outline.
 // - "Submission (Manual) Screen" (scan = null): the same fields, empty.
@@ -75,10 +80,15 @@ export function PriceForm({
   const [scanned] = useState(() => toFormValues(result));
   const fromScan = result !== null;
 
-  const [store, setStore] = useState<GuessedStore | null>(null);
-  useEffect(() => {
-    guessStore().then(setStore);
-  }, []);
+  const navigation = useNavigation();
+
+  // Store chosen on the Store Picker (see usePickerStore).
+  const store = usePickerStore((s) => s.store);
+  const [storeMissing, setStoreMissing] = useState(false);
+
+  // Leaving the form (submit, X, back) forgets the store, so the next price
+  // starts fresh. The Store Picker opens on top, so it doesn't unmount the form.
+  useEffect(() => () => usePickerStore.getState().clear(), []);
 
   const {
     control,
@@ -88,10 +98,8 @@ export function PriceForm({
   } = useForm<FormValues>({ defaultValues: toFormValues(result) });
 
   const values = useWatch({ control });
-
   // A field is "scanned" while it still holds exactly what OCR read.
   // After a scan, any of the four OCR fields left empty is highlighted
-  // (Shernice: the name is often missing even when the price is fine).
   type OcrField = 'itemName' | 'brand' | 'unitSize' | 'price';
   const isScanned = (field: OcrField) =>
     fromScan && scanned[field] !== '' && values[field] === scanned[field];
@@ -106,6 +114,11 @@ export function PriceForm({
     () => !result?.itemName || !result.brand || !result.unitSize
   );
 
+  const openStorePicker = () => {
+    setStoreMissing(false);
+    navigation.navigate('StorePicker');
+  };
+
   // Jump straight to the empty price when that's the only thing missing.
   useEffect(() => {
     if (result?.itemName && !scanned.price) {
@@ -114,20 +127,48 @@ export function PriceForm({
     }
   }, [result, scanned.price, setFocus]);
 
-  const onSubmit = handleSubmit(async () => {
-    // TODO(backend): POST /api/v1/prices once the form has an item id and a
-    // store id (needs the Item Picker and Store Picker).
-    await new Promise((resolve) => setTimeout(resolve, 600));
-    Alert.alert(
-      'Price ready',
-      'Submitting isn’t connected to the backend yet, so nothing was saved.',
-      [
-        {
-          text: 'OK',
-          onPress: onSubmitted,
-        },
-      ]
-    );
+  const submit = useSubmitPrice();
+  // Why the last submit failed, shown above the button. Nothing was saved
+  // then, and every field keeps what the user typed so they can retry.
+  const [submitError, setSubmitError] = useState<{
+    message: string;
+    needsLogin: boolean;
+  } | null>(null);
+
+  const onSubmit = handleSubmit(async (form) => {
+    setSubmitError(null);
+    if (!store) {
+      setStoreMissing(true);
+      return;
+    }
+
+    let saved;
+    try {
+      saved = await submit.mutateAsync({
+        itemName: form.itemName,
+        brand: form.brand,
+        unitSize: form.unitSize,
+        storeId: store.id,
+        price: Number(form.price),
+        isPublic: form.sharePublicly,
+      });
+    } catch (error) {
+      setSubmitError({
+        message: submitErrorMessage(error),
+        needsLogin: isAuthError(error),
+      });
+      return;
+    }
+
+    onSubmitted({
+      itemId: saved.itemId || null,
+      itemName: form.itemName.trim(),
+      brand: form.brand.trim() || null,
+      unitSize: form.unitSize.trim() || null,
+      storeName: store.name,
+      price: saved.price,
+      isPublic: saved.isPublic,
+    });
   });
 
   const brandSize = [values.brand, values.unitSize].filter(Boolean).join(' · ');
@@ -176,7 +217,7 @@ export function PriceForm({
           )}
 
           <Text style={fromScan ? styles.heading : styles.manualHeading}>
-            {fromScan ? 'Almost done' : 'Support others save nearby'}
+            {fromScan ? 'Almost done' : 'Help others save nearby'}
           </Text>
           <Text style={fromScan ? styles.subheading : styles.manualSubheading}>
             {fromScan
@@ -269,44 +310,33 @@ export function PriceForm({
             )}
           </View>
           {errors.itemName && <ErrorText message={errors.itemName.message} />}
-
           {/* Store */}
           <FieldLabel label="Store" />
           <Pressable
-            // TODO: open the Store Picker screen (Figma "Store Picker") once it's built.
-            onPress={() =>
-              Alert.alert(
-                'Coming soon',
-                'Picking a different store isn’t built yet.'
-              )
-            }
+            onPress={openStorePicker}
             accessibilityRole="button"
             accessibilityLabel={
               store
-                ? `Store: ${store.name}, ${formatDistance(store.distanceMi)}. Change store`
+                ? `Store: ${storeLine(store)}. Change store`
                 : 'Choose a store'
             }
             style={({ pressed }) => [
               styles.card,
               styles.storeCard,
+              storeMissing && styles.cardError,
               pressed && styles.pressed,
             ]}
           >
             <Feather name="map-pin" size={15} color={colors.text} />
-            <Text style={styles.storeText} numberOfLines={1}>
-              {store
-                ? `${store.name} · ${formatDistance(store.distanceMi)}`
-                : 'Choose a store'}
+            <Text
+              style={[styles.storeText, !store && styles.placeholder]}
+              numberOfLines={1}
+            >
+              {store ? storeLine(store) : 'Choose a store'}
             </Text>
             <Feather name="chevron-right" size={15} color={colors.text} />
           </Pressable>
-          {/* Only after a scan, per Figma; the manual frame has no hint. */}
-          {store && fromScan && (
-            <Text style={styles.hint}>
-              Guessed from your location — change if this isn’t right.
-            </Text>
-          )}
-
+          {storeMissing && <ErrorText message="Choose the store" />}
           {/* Price */}
           <FieldLabel
             label="Price"
@@ -364,23 +394,46 @@ export function PriceForm({
             render={({ field }) => (
               <View style={[styles.card, styles.shareCard]}>
                 <View style={styles.shareText}>
-                  <Text style={styles.shareTitle}>Share Publicly</Text>
+                  <View style={styles.shareTitleRow}>
+                    <Text style={styles.shareTitle}>Share Publicly</Text>
+                    <Switch
+                      style={styles.shareSwitch}
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      accessibilityLabel="Share publicly"
+                      trackColor={{ true: '#34C759', false: colors.card }}
+                    />
+                  </View>
                   <Text style={styles.shareSubtitle}>
                     Visible to everyone nearby
                   </Text>
                 </View>
-                <Switch
-                  value={field.value}
-                  onValueChange={field.onChange}
-                  accessibilityLabel="Share publicly"
-                  trackColor={{ true: colors.positive, false: colors.card }}
-                />
               </View>
             )}
           />
         </ScrollView>
 
         <View style={styles.footer}>
+          {submitError && (
+            <View style={styles.submitError} accessibilityLiveRegion="polite">
+              <Feather name="alert-circle" size={15} color={colors.error} />
+              <Text style={styles.submitErrorText}>
+                {submitError.message}
+                {submitError.needsLogin && (
+                  <Text
+                    style={styles.submitErrorLink}
+                    accessibilityRole="link"
+                    onPress={() =>
+                      navigation.navigate('Login', { then: 'back' })
+                    }
+                  >
+                    {' '}
+                    Log in
+                  </Text>
+                )}
+              </Text>
+            </View>
+          )}
           <Pressable
             onPress={() => onSubmit()}
             disabled={isSubmitting}
@@ -403,6 +456,13 @@ export function PriceForm({
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
+}
+
+// "Key Food · 0.4 mi", or just "Key Food" when the distance is unknown.
+function storeLine(store: { name: string; distanceMi?: number }): string {
+  return store.distanceMi != null
+    ? `${store.name} · ${formatDistance(store.distanceMi)}`
+    : store.name;
 }
 
 function outline(scanned: boolean, missing: boolean): StyleProp<ViewStyle> {
@@ -666,13 +726,17 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   shareCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
     minHeight: 54,
     paddingHorizontal: spacing.md,
     marginTop: spacing.lg,
   },
   shareText: { flex: 1 },
+  shareTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  shareSwitch: { alignSelf: 'center' },
   shareTitle: {
     fontFamily: fonts.headingSemibold,
     fontSize: 15,
@@ -694,6 +758,24 @@ const styles = StyleSheet.create({
     paddingTop: spacing.sm,
     paddingBottom: spacing.md,
     alignItems: 'center',
+  },
+  submitError: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.xs,
+    alignSelf: 'stretch',
+    marginBottom: spacing.sm,
+  },
+  submitErrorText: {
+    flex: 1,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    lineHeight: 16,
+    color: colors.error,
+  },
+  submitErrorLink: {
+    fontFamily: fonts.bodyBold,
+    textDecorationLine: 'underline',
   },
   submit: {
     alignSelf: 'stretch',

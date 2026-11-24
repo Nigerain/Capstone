@@ -14,7 +14,7 @@ import { useHideTabBarOnScroll } from '../hooks/useHideTabBarOnScroll';
 import { usePriceDrops } from '../hooks/usePriceDrops';
 import { colors, spacing, typography } from '../theme';
 import type { Category } from '../types/price';
-import { formatDistance, formatSize, formatStoreLine } from '../utils/format';
+import { formatSize, formatStoreLine } from '../utils/format';
 
 // How many price drops to show on Home.
 const MAX_DROPS = 3;
@@ -45,7 +45,7 @@ export function HomeScreen() {
       return <Text style={typography.meta}>Couldn’t load price drops.</Text>;
     }
     if (!drops.data?.length) {
-      return <Text style={typography.meta}>No price drops near you yet.</Text>;
+      return <Text style={typography.meta}>Price-drop tracking is not available yet. Search for current prices or add one with +.</Text>;
     }
 
     return drops.data

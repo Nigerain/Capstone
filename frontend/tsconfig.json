@@ -1,6 +1,12 @@
 {
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
-    "strict": true
+    "strict": true,
+    // Firebase's package points TypeScript at its web typings, which leave out
+    // getReactNativePersistence. Use its React Native typings instead
+    // (the app itself already loads the React Native build).
+    "paths": {
+      "@firebase/auth": ["./node_modules/@firebase/auth/dist/rn/index.rn.d.ts"]
+    }
   }
 }

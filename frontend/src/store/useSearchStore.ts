@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 
 const MAX_RECENT = 5;
 
@@ -46,15 +46,13 @@ export const useSearchStore = create<SearchState>()(
   ),
 );
 
+function subscribeToHydration(notify: () => void) {
+  const start = useSearchStore.persist.onHydrate(notify);
+  const finish = useSearchStore.persist.onFinishHydration(notify);
+  return () => { start(); finish(); };
+}
+
 export function useSearchStoreHydrated(): boolean {
-  const [hydrated, setHydrated] = useState(() => useSearchStore.persist.hasHydrated());
-
-  useEffect(() => {
-    const unsubscribe = useSearchStore.persist.onFinishHydration(() => setHydrated(true));
-    // In case loading finished between the first render and this effect running.
-    setHydrated(useSearchStore.persist.hasHydrated());
-    return unsubscribe;
-  }, []);
-
-  return hydrated;
+  return useSyncExternalStore(subscribeToHydration,
+    () => useSearchStore.persist.hasHydrated(), () => false);
 }

@@ -5,8 +5,6 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { RootStackParamList } from '../navigation/types';
-
-import { canAddPrices } from '../store/useAuthStore';
 import { colors, fonts, spacing } from '../theme';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AddPrice'>;
@@ -48,22 +46,14 @@ export function AddPriceScreen({ navigation }: Props) {
             icon="camera"
             title="Scan a price tag"
             description="Fastest · auto-fills the form for you"
-            onPress={() =>
-              canAddPrices()
-                ? navigation.navigate('ScanPrice')
-                : navigation.navigate('Signup', { then: 'AddPrice' })
-            }
+            onPress={() => navigation.navigate('ScanPrice')}
           />
           <OptionCard
             variant="light"
             icon="edit-3"
             title="Enter manually"
             description="Type in the item, store and price"
-            onPress={() =>
-              canAddPrices()
-                ? navigation.navigate('ManualEntry')
-                : navigation.navigate('Signup', { then: 'AddPrice' })
-            }
+            onPress={() => navigation.navigate('ManualEntry')}
           />
         </View>
       </ScrollView>

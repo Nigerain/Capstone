@@ -21,7 +21,6 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { TabParamList } from '../navigation/types';
-
 import { canAddPrices } from '../store/useAuthStore';
 import { useTabBarStore } from '../store/useTabBarStore';
 import { colors, spacing } from '../theme';

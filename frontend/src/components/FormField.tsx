@@ -6,6 +6,7 @@ import {
   TextInput,
   View,
   type StyleProp,
+  type TextInputInstance,
   type TextInputProps,
   type TextStyle,
   type ViewStyle,
@@ -26,7 +27,7 @@ type Props = TextInputProps & {
   labelStyle?: StyleProp<TextStyle>;
 };
 
-export const FormField = forwardRef<import('react').ComponentRef<typeof import('react-native').TextInput>, Props>(
+export const FormField = forwardRef<TextInputInstance, Props>(
   function FormField(
     { label, icon, error, right, fieldStyle, labelStyle, style, ...inputProps },
     ref

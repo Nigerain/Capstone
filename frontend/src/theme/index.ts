@@ -32,6 +32,14 @@ export const colors = {
   scannedBadge: '#949352', // "SCANNED" label
   needsInput: '#D98A2B', // outline on fields OCR couldn't fill (not in Figma yet)
   change: '#277C3E', // "Change" link
+  // Store / Item Picker rows
+  pickerRow: '#FBFBFB',
+  pickerRowBorder: '#E4E0DE',
+  pickerSelected: '#FFFBF0', // selected row fill; outline is `scanned`
+  radioBorder: '#CFCACA', // empty radio circle
+  // Price Posted screen
+  closeButton: '#DCDBDB', // round X button
+  successRing: '#D7EDCB', // light green ring around the check
 } as const;
 
 export const fonts = {

@@ -11,6 +11,7 @@ import {
   StyleSheet,
   Text,
   View,
+  type TextInputInstance,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -24,7 +25,12 @@ import {
 } from '../components/AuthParts';
 import { FormField } from '../components/FormField';
 import type { RootStackParamList } from '../navigation/types';
-import { AuthError, logIn, type LogInInput } from '../services/auth';
+import {
+  AuthError,
+  logIn,
+  resetPassword,
+  type LogInInput,
+} from '../services/auth';
 import { useAuthStore } from '../store/useAuthStore';
 import { colors, fonts, spacing, typography } from '../theme';
 
@@ -37,12 +43,13 @@ const BUTTON_WIDTH = 271;
 export function LoginScreen({ navigation, route }: Props) {
   const setUser = useAuthStore((s) => s.setUser);
   const [showPassword, setShowPassword] = useState(false);
-  const passwordRef = useRef<import('react').ComponentRef<typeof import('react-native').TextInput>>(null);
+  const passwordRef = useRef<TextInputInstance>(null);
 
   const {
     control,
     handleSubmit,
     setError,
+    getValues,
     formState: { errors, isSubmitting },
   } = useForm<LogInInput>({
     defaultValues: { email: '', password: '' },
@@ -53,7 +60,11 @@ export function LoginScreen({ navigation, route }: Props) {
     try {
       const user = await logIn({ ...values, email: values.email.trim() });
       setUser(user);
-      if (route.params?.then === 'AddPrice') {
+      if (route.params?.then === 'back') {
+        // Their session ended while submitting a price: return to the form,
+        // which still holds what they typed.
+        navigation.goBack();
+      } else if (route.params?.then === 'AddPrice') {
         // They tapped "+" (or their session ended mid-scan): open Add a Price.
         navigation.popToTop();
         navigation.navigate('AddPrice');
@@ -70,12 +81,33 @@ export function LoginScreen({ navigation, route }: Props) {
     }
   });
 
-  // TODO(firebase): sendPasswordResetEmail once Firebase Auth is connected.
-  const showForgotPassword = () =>
-    Alert.alert(
-      'Coming soon',
-      'Password reset isn’t set up yet. Ask the team to reset it for now.'
-    );
+  // Uses the email typed above, so there's no extra screen to build.
+  const showForgotPassword = async () => {
+    const email = getValues('email').trim();
+    if (!EMAIL_PATTERN.test(email)) {
+      setError(
+        'email',
+        { message: 'Enter your email above, then tap Forgot password.' },
+        { shouldFocus: true }
+      );
+      return;
+    }
+    try {
+      await resetPassword(email);
+      // Same message whether or not the account exists.
+      Alert.alert(
+        'Check your email',
+        `If ${email} has an account, we sent a link to reset your password.`
+      );
+    } catch (error) {
+      Alert.alert(
+        'Couldn’t send the email',
+        error instanceof AuthError
+          ? error.message
+          : 'Something went wrong. Please try again.'
+      );
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>

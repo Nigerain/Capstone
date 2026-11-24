@@ -3,11 +3,13 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AddPriceScreen } from '../screens/AddPriceScreen';
 import { CameraScreen } from '../screens/CameraScreen';
 import { LoginScreen } from '../screens/LoginScreen';
+import { PricePostedScreen } from '../screens/PricePostedScreen';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
 import { ScanConfirmScreen } from '../screens/ScanConfirmScreen';
 import { ScanProblemScreen } from '../screens/ScanProblemScreen';
 import { ScanProcessingScreen } from '../screens/ScanProcessingScreen';
 import { SignupScreen } from '../screens/SignupScreen';
+import { StorePickerScreen } from '../screens/StorePickerScreen';
 import { SubmitPriceScreen } from '../screens/SubmitPriceScreen';
 import { colors } from '../theme';
 import { TabNavigator } from './TabNavigator';
@@ -56,6 +58,17 @@ export function RootNavigator() {
         name="ManualEntry"
         component={SubmitPriceScreen}
         options={{ presentation: 'modal' }}
+      />
+      {/* Slides up over the price form and drops back to it. */}
+      <Stack.Screen
+        name="StorePicker"
+        component={StorePickerScreen}
+        options={{ presentation: 'modal' }}
+      />
+      <Stack.Screen
+        name="PricePosted"
+        component={PricePostedScreen}
+        options={{ presentation: 'modal', gestureEnabled: false }}
       />
       <Stack.Screen name="Signup" component={SignupScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
