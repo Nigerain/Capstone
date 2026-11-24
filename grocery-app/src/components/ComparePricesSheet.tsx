@@ -163,7 +163,6 @@ export function ComparePricesSheet({ visible, item, onClose, onAddPrice }: Props
           <Animated.View
             style={[
               styles.page,
-              styles.listPage,
               { paddingBottom: insets.bottom + spacing.lg, transform: [{ translateX: listX }] },
             ]}
             // Hide the off-screen list from screen readers while voting.
@@ -171,7 +170,7 @@ export function ComparePricesSheet({ visible, item, onClose, onAddPrice }: Props
             accessibilityElementsHidden={!!selected}
           >
             {/* Drag area: the bar and the header */}
-            <View {...pan.panHandlers}>
+            <View {...pan.panHandlers} style={styles.contentInset}>
               <View style={styles.handleZone}>
                 <View style={styles.handle} />
               </View>
@@ -200,7 +199,7 @@ export function ComparePricesSheet({ visible, item, onClose, onAddPrice }: Props
             </View>
 
             {sorted.length === 0 && (
-              <View style={styles.emptyBox}>
+              <View style={[styles.emptyBox, styles.contentInset]}>
                 <Text style={typography.cardTitle}>No prices to compare yet</Text>
                 <Text style={typography.meta}>Add the price you saw and it will show up here.</Text>
               </View>
@@ -246,7 +245,7 @@ export function ComparePricesSheet({ visible, item, onClose, onAddPrice }: Props
             </ScrollView>
 
             {sorted.length <= 1 && (
-              <View style={styles.footer}>
+              <View style={[styles.footer, styles.contentInset]}>
                 {isSingleStore && (
                   <Text style={[typography.meta, styles.footerText]}>
                     Only one store so far. Seen it somewhere else?
@@ -346,8 +345,10 @@ const styles = StyleSheet.create({
   },
   // Both pages fill the sheet; the vote page starts off to the right.
   page: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0 },
-  listPage: { paddingHorizontal: 20 },
   votePage: { backgroundColor: colors.pickerRow },
+  // Header, empty state, and footer stay inset. Rows are full width so the
+  // cheapest row's fill can reach both edges of the sheet.
+  contentInset: { paddingHorizontal: 20 },
   // Taller than the bar itself, so it's easy to grab.
   handleZone: { alignItems: 'center', paddingTop: spacing.sm, paddingBottom: spacing.md },
   handle: {
@@ -380,6 +381,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: spacing.md,
     paddingVertical: 10,
+    paddingHorizontal: 20,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.card,
   },
@@ -397,8 +399,6 @@ const styles = StyleSheet.create({
   // Figma: the cheapest row is light green, edge to edge.
   rowBest: {
     backgroundColor: colors.successRing,
-    marginHorizontal: -20,
-    paddingHorizontal: 20,
   },
   badge: {
     backgroundColor: colors.badge,
