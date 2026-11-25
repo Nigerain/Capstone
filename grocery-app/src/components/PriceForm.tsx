@@ -1,11 +1,12 @@
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useEffect, useState } from 'react';
-import { Controller, useForm, useWatch } from 'react-hook-form';
+import { Controller, useForm, useFormState, useWatch } from 'react-hook-form';
 import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -21,7 +22,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useSubmitPrice } from '../hooks/useSubmitPrice';
 import { guessStore } from '../services/storeService';
-import { isAuthError, submitErrorMessage } from '../services/submitService';
+import {
+  GROCERY_UNITS,
+  isAuthError,
+  splitScannedSize,
+  submitErrorMessage,
+  unitLabel,
+  type GroceryUnit,
+} from '../services/submitService';
 import { usePickerStore } from '../store/usePickerStore';
 import type { RootStackParamList } from '../navigation/types';
 import type { ScanPhoto } from '../store/useScanStore';
@@ -45,7 +53,10 @@ type Props = {
 type FormValues = {
   itemName: string;
   brand: string;
-  unitSize: string;
+  // Size is two fields: the number as typed, and a unit picked from the list
+  // (the backend's GroceryUnit). Both empty = no size, which is allowed.
+  unitAmount: string;
+  unit: GroceryUnit | '';
   price: string; // kept as typed; parsed on submit
   sharePublicly: boolean;
 };
@@ -60,10 +71,26 @@ function toFormValues(result: ScanResult | null): FormValues {
   return {
     itemName: result?.itemName ?? '',
     brand: result?.brand ?? '',
-    unitSize: result?.unitSize ?? '',
+    // OCR still reads size as one string ("1.5 lb"), so split it to prefill.
+    ...scannedSizeFields(result?.unitSize),
     price: trustedPrice,
     sharePublicly: true,
   };
+}
+
+function scannedSizeFields(
+  unitSize: string | null | undefined
+): Pick<FormValues, 'unitAmount' | 'unit'> {
+  const { unitAmount, unit } = splitScannedSize(unitSize);
+  return {
+    unitAmount: unitAmount != null ? String(unitAmount) : '',
+    unit: unit ?? '',
+  };
+}
+
+// "1.5 lb", or '' until both size fields are filled
+function sizeText(amount?: string, unit?: GroceryUnit | ''): string {
+  return amount?.trim() && unit ? `${amount.trim()} ${unitLabel(unit)}` : '';
 }
 
 // - "Confirmed Scan Screen" (scan given): fields OCR filled get a yellow outline
@@ -115,18 +142,20 @@ export function PriceForm({
 
   // A field is "scanned" while it still holds exactly what OCR read.
   // After a scan, any of the four OCR fields left empty is highlighted
-  type OcrField = 'itemName' | 'brand' | 'unitSize' | 'price';
+  type OcrField = 'itemName' | 'brand' | 'unitAmount' | 'unit' | 'price';
   const isScanned = (field: OcrField) =>
     fromScan && scanned[field] !== '' && values[field] === scanned[field];
   const needsInput = (field: OcrField) => fromScan && !values[field];
 
+  const sizeMissing = needsInput('unitAmount') || needsInput('unit');
   const itemMissing =
-    needsInput('itemName') || needsInput('brand') || needsInput('unitSize');
+    needsInput('itemName') || needsInput('brand') || sizeMissing;
   const itemScanned = !itemMissing && isScanned('itemName');
 
   // Start with the item fields open when there's something to fill in.
   const [editingItem, setEditingItem] = useState(
-    () => !result?.itemName || !result.brand || !result.unitSize
+    () =>
+      !result?.itemName || !result.brand || !scanned.unitAmount || !scanned.unit
   );
 
   const openStorePicker = () => {
@@ -164,7 +193,8 @@ export function PriceForm({
       saved = await submit.mutateAsync({
         itemName: form.itemName,
         brand: form.brand,
-        unitSize: form.unitSize,
+        unitAmount: form.unitAmount.trim() ? Number(form.unitAmount) : null,
+        unit: form.unit || null,
         storeId: store.id,
         price: Number(form.price),
         isPublic: form.sharePublicly,
@@ -181,14 +211,15 @@ export function PriceForm({
       itemId: saved.itemId || null,
       itemName: form.itemName.trim(),
       brand: form.brand.trim() || null,
-      unitSize: form.unitSize.trim() || null,
+      unitSize: sizeText(form.unitAmount, form.unit) || null,
       storeName: store.name,
       price: saved.price,
       isPublic: saved.isPublic,
     });
   });
 
-  const brandSize = [values.brand, values.unitSize].filter(Boolean).join(' · ');
+  const size = sizeText(values.unitAmount, values.unit);
+  const brandSize = [values.brand, size].filter(Boolean).join(' · ');
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -286,7 +317,7 @@ export function PriceForm({
                   <Text style={styles.itemMeta} numberOfLines={1}>
                     <MetaPart value={values.brand} missingLabel="Add brand" />
                     {' · '}
-                    <MetaPart value={values.unitSize} missingLabel="Add size" />
+                    <MetaPart value={size} missingLabel="Add size" />
                   </Text>
                 ) : brandSize ? (
                   <Text style={styles.itemMeta} numberOfLines={1}>
@@ -316,12 +347,10 @@ export function PriceForm({
                   placeholder="Perdue (optional)"
                   missing={needsInput('brand')}
                 />
-                <InlineField
+                <SizeFields
                   control={control}
-                  name="unitSize"
-                  label="Size"
-                  placeholder="1.5 lb (optional)"
-                  missing={needsInput('unitSize')}
+                  amountMissing={needsInput('unitAmount')}
+                  unitMissing={needsInput('unit')}
                 />
               </View>
             )}
@@ -404,9 +433,7 @@ export function PriceForm({
                   accessibilityLabel="Price in dollars"
                   style={[styles.priceText, styles.priceInput]}
                 />
-                {values.unitSize ? (
-                  <Text style={styles.perText}>per {values.unitSize}</Text>
-                ) : null}
+                {size ? <Text style={styles.perText}>per {size}</Text> : null}
               </View>
             )}
           />
@@ -525,7 +552,7 @@ function InlineField({
   rules,
 }: {
   control: ReturnType<typeof useForm<FormValues>>['control'];
-  name: 'itemName' | 'brand' | 'unitSize';
+  name: 'itemName' | 'brand';
   label: string;
   placeholder: string;
   missing: boolean; // OCR left it empty: orange outline
@@ -553,6 +580,161 @@ function InlineField({
         </View>
       )}
     />
+  );
+}
+
+// Size as two fields on one row: a short amount box, then a unit dropdown,
+// so the unit always matches a backend GroceryUnit.
+// Both are optional, but filling one means filling the other.
+function SizeFields({
+  control,
+  amountMissing,
+  unitMissing,
+}: {
+  control: ReturnType<typeof useForm<FormValues>>['control'];
+  amountMissing: boolean; // OCR left it empty: orange outline
+  unitMissing: boolean;
+}) {
+  const [unitMenuOpen, setUnitMenuOpen] = useState(false);
+  const { errors } = useFormState({ control, name: ['unitAmount', 'unit'] });
+
+  return (
+    <View style={styles.inlineField}>
+      <Text style={styles.inlineLabel}>Size (optional)</Text>
+      <View style={styles.sizeRow}>
+        <Controller
+          control={control}
+          name="unitAmount"
+          rules={{
+            deps: ['unit'],
+            validate: (v, form) => {
+              if (!v.trim()) return form.unit ? 'Add the amount, like 1.5' : true;
+              const n = Number(v);
+              if (!Number.isFinite(n) || n <= 0) return 'Enter a size above 0';
+              return true;
+            },
+          }}
+          render={({ field }) => (
+            <TextInput
+              ref={field.ref}
+              value={field.value}
+              onChangeText={(text) =>
+                field.onChange(text.replace(/[^0-9.]/g, ''))
+              }
+              onBlur={field.onBlur}
+              placeholder="1.5"
+              placeholderTextColor={colors.placeholder}
+              keyboardType="decimal-pad"
+              accessibilityLabel="Size amount"
+              style={[
+                styles.inlineInput,
+                styles.amountInput,
+                (amountMissing || !!errors.unitAmount) && styles.inlineInputMissing,
+              ]}
+            />
+          )}
+        />
+        <Controller
+          control={control}
+          name="unit"
+          rules={{
+            deps: ['unitAmount'],
+            validate: (v, form) =>
+              !form.unitAmount.trim() || !!v || 'Pick a unit',
+          }}
+          render={({ field }) => (
+            <>
+              <Pressable
+                onPress={() => setUnitMenuOpen(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Size unit"
+                accessibilityState={{ expanded: unitMenuOpen }}
+                style={[
+                  styles.inlineInput,
+                  styles.unitButton,
+                  (unitMissing || !!errors.unit) && styles.inlineInputMissing,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.unitButtonText,
+                    !field.value && styles.placeholder,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {field.value ? unitLabel(field.value) : 'unit'}
+                </Text>
+                <Feather
+                  name="chevron-down"
+                  size={16}
+                  color={colors.textSecondary}
+                />
+              </Pressable>
+              <Modal
+                visible={unitMenuOpen}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setUnitMenuOpen(false)}
+              >
+                <View style={styles.unitMenuBackdrop}>
+                  <Pressable
+                    style={StyleSheet.absoluteFill}
+                    onPress={() => setUnitMenuOpen(false)}
+                    accessibilityLabel="Close unit menu"
+                  />
+                  <View style={styles.unitMenu}>
+                    <ScrollView
+                      style={styles.unitMenuList}
+                      keyboardShouldPersistTaps="handled"
+                    >
+                      {GROCERY_UNITS.map((u) => {
+                        const selected = field.value === u.value;
+                        return (
+                          <Pressable
+                            key={u.value}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected }}
+                            accessibilityHint={
+                              selected
+                                ? 'Clears the unit'
+                                : undefined
+                            }
+                            onPress={() => {
+                              // Tapping the selected unit again clears it.
+                              field.onChange(selected ? '' : u.value);
+                              setUnitMenuOpen(false);
+                            }}
+                            style={[
+                              styles.unitOption,
+                              selected && styles.unitOptionSelected,
+                            ]}
+                          >
+                            <Text style={styles.unitOptionText}>{u.label}</Text>
+                            {selected ? (
+                              <Feather
+                                name="check"
+                                size={16}
+                                color={colors.change}
+                              />
+                            ) : null}
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                </View>
+              </Modal>
+            </>
+          )}
+        />
+      </View>
+      {typeof errors.unitAmount?.message === 'string' && (
+        <ErrorText message={errors.unitAmount.message} />
+      )}
+      {typeof errors.unit?.message === 'string' && (
+        <ErrorText message={errors.unit.message} />
+      )}
+    </View>
   );
 }
 
@@ -716,6 +898,54 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   inlineInputMissing: { borderColor: colors.needsInput },
+  sizeRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: spacing.sm,
+  },
+  amountInput: { width: 72, flexShrink: 0, textAlign: 'center' },
+  unitButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.xs,
+  },
+  unitButtonText: {
+    flex: 1,
+    fontFamily: fonts.bodySemibold,
+    fontSize: 14,
+    color: colors.text,
+  },
+  unitMenuBackdrop: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 48,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
+  },
+  unitMenu: {
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.pickerRowBorder,
+    overflow: 'hidden',
+  },
+  unitMenuList: { maxHeight: 280 },
+  unitOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  unitOptionSelected: { backgroundColor: colors.pickerSelected },
+  unitOptionText: {
+    fontFamily: fonts.bodySemibold,
+    fontSize: 14,
+    color: colors.text,
+  },
   metaMissing: { color: colors.needsInput, fontFamily: fonts.bodyMedium },
   storeCard: {
     flexDirection: 'row',

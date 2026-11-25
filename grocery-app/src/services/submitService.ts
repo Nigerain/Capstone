@@ -1,4 +1,8 @@
-import type { ApiSubmitPrice, ApiSubmittedPrice } from '../types/api';
+import type {
+  ApiSubmitPrice,
+  ApiSubmittedPrice,
+  GroceryUnit,
+} from '../types/api';
 import { ApiError, apiRequest } from './api';
 import { getAuthToken } from './auth';
 import { searchItems as searchMockItems } from './mockPriceService';
@@ -10,11 +14,92 @@ import { searchItems as searchMockItems } from './mockPriceService';
 export const USE_MOCK_SUBMIT =
   process.env.EXPO_PUBLIC_USE_MOCK_SUBMIT !== 'false';
 
+export type { GroceryUnit };
+
+// Unit picker options, in the order shown. `label` is what the user sees,
+// `value` is what goes to the backend.
+export const GROCERY_UNITS: { value: GroceryUnit; label: string }[] = [
+  { value: 'LB', label: 'lb' },
+  { value: 'OZ', label: 'oz' },
+  { value: 'FL_OZ', label: 'fl oz' },
+  { value: 'EACH', label: 'each' },
+  { value: 'PACK', label: 'pack' },
+  { value: 'DOZEN', label: 'dozen' },
+  { value: 'GAL', label: 'gal' },
+  { value: 'QT', label: 'qt' },
+  { value: 'PT', label: 'pt' },
+  { value: 'L', label: 'L' },
+  { value: 'ML', label: 'mL' },
+  { value: 'KG', label: 'kg' },
+  { value: 'G', label: 'g' },
+  { value: 'LOAF', label: 'loaf' },
+  { value: 'SERVING', label: 'serving' },
+];
+
+/** "LB" → "lb" */
+export function unitLabel(unit: GroceryUnit | null | undefined): string {
+  return GROCERY_UNITS.find((u) => u.value === unit)?.label ?? '';
+}
+
+// Ways a size can be written on a tag → backend unit
+const UNIT_ALIASES: Record<string, GroceryUnit> = {
+  lb: 'LB',
+  lbs: 'LB',
+  pound: 'LB',
+  pounds: 'LB',
+  oz: 'OZ',
+  ounce: 'OZ',
+  ounces: 'OZ',
+  'fl oz': 'FL_OZ',
+  floz: 'FL_OZ',
+  fl_oz: 'FL_OZ',
+  g: 'G',
+  kg: 'KG',
+  ml: 'ML',
+  l: 'L',
+  pt: 'PT',
+  qt: 'QT',
+  gal: 'GAL',
+  gallon: 'GAL',
+  gallons: 'GAL',
+  each: 'EACH',
+  ea: 'EACH',
+  dozen: 'DOZEN',
+  dz: 'DOZEN',
+  serving: 'SERVING',
+  pack: 'PACK',
+  pk: 'PACK',
+  ct: 'PACK',
+  count: 'PACK',
+  loaf: 'LOAF',
+};
+
+/**
+ * OCR still reads size as one string ("1.5 lb"). Splits it into the two
+ * form fields to prefill them; anything it can't read comes back null.
+ */
+export function splitScannedSize(value: string | null | undefined): {
+  unitAmount: number | null;
+  unit: GroceryUnit | null;
+} {
+  const match = (value ?? '')
+    .trim()
+    .toLowerCase()
+    .match(/^(\d+(?:\.\d+)?)\s*([a-z_ ]+?)\.?$/);
+  if (!match) return { unitAmount: null, unit: null };
+  const amount = Number(match[1]);
+  return {
+    unitAmount: amount > 0 ? amount : null,
+    unit: UNIT_ALIASES[match[2].trim()] ?? null,
+  };
+}
+
 // What the price form hands over, already validated by the form.
 export type SubmitPriceInput = {
   itemName: string;
   brand: string;
-  unitSize: string;
+  unitAmount: number | null; // null when no size was given
+  unit: GroceryUnit | null;
   storeId: string;
   price: number;
   isPublic: boolean;
@@ -45,7 +130,8 @@ export function toRequestBody(input: SubmitPriceInput): ApiSubmitPrice {
       // Optional fields go out as null, not "", so the backend can tell
       // "not given" apart from a real value when it matches the item.
       brand: input.brand.trim() || null,
-      unitSize: input.unitSize.trim() || null,
+      unitAmount: input.unitAmount,
+      unit: input.unit,
     },
     storeId: input.storeId,
     // Round to cents, so 1.999 typed by accident can't slip through.

@@ -38,11 +38,17 @@ export interface ApiStore {
     prices: ApiPriceEntry[];
   }
   
+  // The units the backend accepts (GroceryUnit in backend/dataconnect/schema/schema.gql)
+  export type GroceryUnit =
+    | 'LB' | 'OZ' | 'G' | 'KG' | 'ML' | 'L' | 'FL_OZ' | 'PT' | 'QT'
+    | 'GAL' | 'EACH' | 'DOZEN' | 'SERVING' | 'PACK' | 'LOAF';
+
   // POST /api/v1/items request body (requires sign-in)
   export interface ApiCreateItem {
     itemName: string;
-    brand: string;
-    unitSize: string;
+    brand?: string | null;
+    unitAmount?: number | null; // e.g. 1.5
+    unit?: GroceryUnit | null; //   "LB"
   }
   
   // POST /api/v1/prices request body as the backend has it today (requires sign-in).
@@ -62,7 +68,9 @@ export interface ApiStore {
     item: {
       itemName: string;
       brand: string | null;
-      unitSize: string | null; // as typed, e.g. "1.5 lb"
+      // Size as two fields, like the backend's Item: 1.5 + "LB"
+      unitAmount: number | null;
+      unit: GroceryUnit | null;
     };
     storeId: string;
     price: number;
