@@ -14,6 +14,8 @@ export function useSubmitPrice() {
       // Searches, product pages and price drops may now be out of date.
       queryClient.invalidateQueries({ queryKey: ['items'] });
       queryClient.invalidateQueries({ queryKey: ['priceDrops'] });
+      // The new price should show up on the Activity tab.
+      queryClient.invalidateQueries({ queryKey: ['myActivity'] });
     },
   });
 }

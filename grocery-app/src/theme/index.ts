@@ -49,6 +49,9 @@ export const colors = {
   voteActive: '#2E8B57', // thumbs up picked, pill outline in Compare Prices
   voteActiveBg: '#E3F4E6', // pill fill after a thumbs up
   accurateLabel: '#5E5A55', // "Accurate?"
+  // Activity tab
+  incorrectText: '#B3412F', // "3 voters marked this as incorrect"
+  incorrectBg: '#F6DCD6', // icon circle on that row
 } as const;
 
 export const fonts = {
