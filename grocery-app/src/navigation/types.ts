@@ -20,8 +20,7 @@ export type RootStackParamList = {
   ScanConfirm: undefined;
   ManualEntry: undefined;
   // Opened from the price form; hands the choice back through usePickerStore.
-  // `for: 'homeStore'` = opened from Profile; saves to useSettingsStore instead.
-  StorePicker: { for?: 'homeStore' } | undefined;
+  StorePicker: undefined;
   // After a successful submit; replaces the whole Add a Price flow.
   PricePosted: {
     itemId: string | null; // from the backend; null hides "View item"
@@ -33,8 +32,6 @@ export type RootStackParamList = {
     isPublic: boolean;
     fromScan: boolean; // show the scan photo as the thumbnail
   };
-  // Opened from Profile's "Search radius" row.
-  SearchRadius: undefined;
   ProductDetail: { itemId: string };
   // `then: 'AddPrice'` = they tapped "+" while signed out; open Add a Price
   // after they sign in, instead of the Profile tab.

@@ -20,7 +20,6 @@ import { useStores } from '../hooks/useStores';
 import type { RootStackParamList } from '../navigation/types';
 import { getNearbyStores } from '../services/storeService';
 import { usePickerStore } from '../store/usePickerStore';
-import { useSettingsStore } from '../store/useSettingsStore';
 import { colors, fonts, spacing } from '../theme';
 import type { Store } from '../types/price';
 import { formatDistance } from '../utils/format';
@@ -38,20 +37,14 @@ function storeDetails(store: Store): string {
 }
 
 // Built from the Figma frame "Store Picker". Opened from the Store field on
-// the price form (the choice goes back through usePickerStore), or from
-// Profile's "Home store" row (the choice is saved in useSettingsStore).
-export function StorePickerScreen({ navigation, route }: Props) {
+// the price form; the choice goes back through usePickerStore.
+export function StorePickerScreen({ navigation }: Props) {
   const queryClient = useQueryClient();
-  const forHomeStore = route.params?.for === 'homeStore';
   const formStore = usePickerStore((s) => s.store);
   const setStore = usePickerStore((s) => s.setStore);
-  const homeStore = useSettingsStore((s) => s.homeStore);
-  const setHomeStore = useSettingsStore((s) => s.setHomeStore);
 
   // Start with the current store checked, so "Use Key Food" works right away.
-  const [selected, setSelected] = useState<Store | null>(
-    forHomeStore ? homeStore : formStore
-  );
+  const [selected, setSelected] = useState<Store | null>(formStore);
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebouncedValue(query, 250);
   const searching = debouncedQuery.trim().length > 0;
@@ -65,11 +58,7 @@ export function StorePickerScreen({ navigation, route }: Props) {
 
   const confirm = () => {
     if (!selected) return;
-    if (forHomeStore) {
-      setHomeStore(selected);
-    } else {
-      setStore(selected, 'user');
-    }
+    setStore(selected, 'user');
     navigation.goBack();
   };
 
@@ -142,7 +131,7 @@ export function StorePickerScreen({ navigation, route }: Props) {
 
   return (
     <PickerLayout
-      title={forHomeStore ? 'Home Store' : 'Choose a Store'}
+      title="Choose a Store"
       leading="close"
       onLeadingPress={() => navigation.goBack()}
       buttonLabel={selected ? `Use ${selected.name}` : 'Choose a store'}
