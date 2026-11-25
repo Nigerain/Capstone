@@ -3,13 +3,12 @@ import { useNavigation } from '@react-navigation/native';
 import { useState } from 'react';
 import { Alert, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { ReputationCard } from '../components/ReputationCard';
 import { SecondaryButton } from '../components/SecondaryButton';
-import { SettingsDivider, SettingsRow } from '../components/SettingsRow';
+import { SettingsRow } from '../components/SettingsRow';
+import { TrustScoreCard } from '../components/TrustScoreCard';
 import { useHideTabBarOnScroll } from '../hooks/useHideTabBarOnScroll';
 import { logOut, type AuthUser } from '../services/auth';
 import { useAuthStore } from '../store/useAuthStore';
-import { useSettingsStore } from '../store/useSettingsStore';
 import { colors, fonts, spacing } from '../theme';
 
 // TODO: the team's support email. Left empty, the email app opens with
@@ -29,7 +28,7 @@ function monthYear(iso: string) {
   });
 }
 
-// Built from the Figma frame "Profile Tab". Only reachable when signed in:
+// Built from the Figma frame "Profile Tab – v2". Only reachable when signed in:
 // the Profile tab opens Sign up for signed-out users (see TabNavigator).
 export function ProfileScreen() {
   const navigation = useNavigation();
@@ -38,8 +37,6 @@ export function ProfileScreen() {
 
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
-  const homeStore = useSettingsStore((s) => s.homeStore);
-  const searchRadiusMi = useSettingsStore((s) => s.searchRadiusMi);
   const [loggingOut, setLoggingOut] = useState(false);
 
   // Shown for a moment after logging out, before Home opens.
@@ -64,11 +61,6 @@ export function ProfileScreen() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Log out', style: 'destructive', onPress: handleLogOut },
     ]);
-
-  // TODO(notifications): no notifications exist yet (needs expo-notifications
-  // and something on the backend to send them).
-  const showNotifications = () =>
-    Alert.alert('Coming soon', 'Notifications aren’t set up yet.');
 
   const openHelp = async () => {
     const subject = encodeURIComponent('Grocery PricePal help & feedback');
@@ -110,30 +102,9 @@ export function ProfileScreen() {
         ) : null}
       </View>
 
-      <ReputationCard />
+      <TrustScoreCard />
 
       <View style={styles.settings}>
-        <SettingsRow
-          icon="map-pin"
-          label="Home store"
-          value={homeStore?.name ?? 'Choose'}
-          onPress={() => navigation.navigate('StorePicker', { for: 'homeStore' })}
-        />
-        <SettingsDivider />
-        <SettingsRow
-          icon="target"
-          label="Search radius"
-          value={`${searchRadiusMi} mi`}
-          onPress={() => navigation.navigate('SearchRadius')}
-        />
-        <SettingsDivider />
-        <SettingsRow
-          icon="bell"
-          label="Notifications"
-          value="Off"
-          onPress={showNotifications}
-        />
-        <SettingsDivider />
         <SettingsRow icon="help-circle" label="Help & feedback" onPress={openHelp} />
       </View>
 

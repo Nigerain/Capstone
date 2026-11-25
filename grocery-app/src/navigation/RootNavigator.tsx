@@ -8,7 +8,6 @@ import { ProductDetailScreen } from '../screens/ProductDetailScreen';
 import { ScanConfirmScreen } from '../screens/ScanConfirmScreen';
 import { ScanProblemScreen } from '../screens/ScanProblemScreen';
 import { ScanProcessingScreen } from '../screens/ScanProcessingScreen';
-import { SearchRadiusScreen } from '../screens/SearchRadiusScreen';
 import { SignupScreen } from '../screens/SignupScreen';
 import { StorePickerScreen } from '../screens/StorePickerScreen';
 import { SubmitPriceScreen } from '../screens/SubmitPriceScreen';
@@ -70,11 +69,6 @@ export function RootNavigator() {
         name="PricePosted"
         component={PricePostedScreen}
         options={{ presentation: 'modal', gestureEnabled: false }}
-      />
-      <Stack.Screen
-        name="SearchRadius"
-        component={SearchRadiusScreen}
-        options={{ presentation: 'modal' }}
       />
       <Stack.Screen name="Signup" component={SignupScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
