@@ -1,0 +1,15 @@
+# Python 3.11+ required: NAME_LINE_PATTERN in extractor.py uses possessive
+# quantifiers (*+), which earlier versions reject at import with
+# "re.error: multiple repeat".
+
+# Scanner (extractor.py). This is all the backend needs to run a scan.
+google-cloud-vision==3.15.0
+pillow==12.3.0
+pillow-heif==1.7.0
+
+# Tesseract comparison (tesseract_compare.py), used only by the accuracy
+# experiments. Also needs the binary, which pip does not install:
+#     brew install tesseract
+numpy==2.5.1
+opencv-python==5.0.0.93
+pytesseract==0.3.13
