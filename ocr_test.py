@@ -1,3 +1,4 @@
+import argparse
 import csv
 import io
 import logging
@@ -260,6 +261,11 @@ def run_vision_words(client, jpeg_bytes):
 # Provisional: on 45 labelled photos (18 degraded on purpose) every bad read
 # scored under 0.8 and 1 of 40 correct prices did too. Re-check against real
 # scan logs before relying on it.
+# Those 45 tested blur, so the score only had to measure legibility. A crisp photo
+# of a markdown tag defeats that: the SAVE badge reads as sharply as the retail
+# price, and on test_images_batch2 four wrong prices scored 0.80-0.84 against a
+# correct range of 0.81-0.84. No threshold separates those, which is what
+# _selection_confidence is for.
 MIN_PRICE_CONFIDENCE = 0.8
 LABELLED_PRICE_FACTOR = 1.0
 FALLBACK_PRICE_FACTOR = 0.85
@@ -271,27 +277,88 @@ TOTAL_SOURCE_PREFIX = "total:"
 # times weight landing on another printed price is two readings agreeing, which is
 # at least as strong as a label.
 FULL_CONFIDENCE_SOURCES = (LABELLED_SOURCE_PREFIX, TOTAL_SOURCE_PREFIX)
+# A markdown tag prints was, save and now, and the three agree: was - save = now.
+# Landing on the "now" of that sum is two readings agreeing, so it scores like a
+# label; landing on the "was" or the "save" means the wrong number was picked.
+SAVE_MISPICK_FACTOR = 0.0
+PRICE_MATCH_TOLERANCE = 0.005
+# A loyalty tag also prints a saving, but its higher price is the shelf price, not a
+# struck-out one, so neither number is a misread and the markdown test doesn't apply.
+LOYALTY_PRICE_LABEL = re.compile(r'REGULAR PRICE|WITH LIDL PLUS|MEMBER PRICE', re.IGNORECASE)
 
 
-def price_confidence(price, price_source, words):
-    """0-1 score: Vision's best confidence on the words that are the price
-    (the same price is often printed twice, so the clearest read counts),
-    scaled down when the price was a fallback guess, not a labelled one.
-    A word counts only if it is the whole price ("$1.79", "179", "1,79", or
-    "69" for a 69 cent price), so digits inside other numbers don't."""
+def _tag_prices(text):
+    """Prices the shopper could mistake for the retail price: per-unit rates excluded."""
+    values = []
+    for line in text.split("\n"):
+        if UNIT_PRICE_LABEL.search(line) or PER_POUND_RATE.search(line):
+            continue
+        values += [float(p.lstrip("$")) for p in extract_prices(line)]
+    return values
+
+
+def _save_triple(text):
+    """(was, now, save) for a markdown tag, or None if the tag prints no such sum.
+
+    Sorted, the price paid is the middle of the three: the struck-out "was" is larger
+    and the markdown smaller. That ordering is what tells the price from the discount,
+    since the subtraction alone reads both ways (5.39 - 1.10 = 4.29 and 5.39 - 4.29 =
+    1.10 describe the same three numbers). A cut of more than half would put the
+    markdown above the price and break the assumption, which no tag seen so far does.
+    """
+    if not SAVE_LABEL.search(text) or LOYALTY_PRICE_LABEL.search(text):
+        return None
+    values = sorted(set(_tag_prices(text)), reverse=True)
+    for i, was in enumerate(values):
+        for now in values[i + 1:]:
+            save = round(was - now, 2)
+            if save < now and any(abs(save - v) <= PRICE_MATCH_TOLERANCE for v in values):
+                return was, now, save
+    return None
+
+
+def _selection_confidence(price, price_source, text):
+    """How much the tag's own layout backs the number that was picked, 0-1.
+
+    Separate from how clearly the digits read: on a printed tag a SAVE badge is as
+    sharp as the retail price, so legibility alone cannot tell a good pick from a bad
+    one. Only this term moves when the wrong number is chosen.
+    """
+    if price_source.startswith(FULL_CONFIDENCE_SOURCES):
+        return LABELLED_PRICE_FACTOR
+    triple = _save_triple(text)
+    if triple is not None:
+        was, now, save = triple
+        if abs(float(price) - now) <= PRICE_MATCH_TOLERANCE:
+            return LABELLED_PRICE_FACTOR
+        if min(abs(float(price) - was), abs(float(price) - save)) <= PRICE_MATCH_TOLERANCE:
+            return SAVE_MISPICK_FACTOR
+    return FALLBACK_PRICE_FACTOR
+
+
+def price_confidence(price, price_source, words, text=""):
+    """0-1 score combining two separate questions, since either alone passes a bad read.
+
+    How clearly the digits read: Vision's best confidence on the words that are the
+    price (the same price is often printed twice, so the clearest read counts). A word
+    counts only if it is the whole price ("$1.79", "179", "1,79", or "69" for a 69 cent
+    price), so digits inside other numbers don't.
+
+    How well the tag backs that number: _selection_confidence. Pass `text` to get it;
+    without the tag text a pick can only be scored on legibility, which on a printed
+    tag is as high for a SAVE badge as for the retail price.
+    """
     if price is None:
         return 0.0
     forms = {price, price.replace(".", "")}
     if price.startswith("0."):
         cents = price[2:]
         forms |= {cents, cents.lstrip("0")}
-    matches = [conf for text, conf in words
-               if re.sub(r"^\D+|\D+$", "", text).replace(",", ".") in forms]
+    matches = [conf for word_text, conf in words
+               if re.sub(r"^\D+|\D+$", "", word_text).replace(",", ".") in forms]
     if not matches:
         return 0.0
-    stated = price_source.startswith(FULL_CONFIDENCE_SOURCES)
-    factor = LABELLED_PRICE_FACTOR if stated else FALLBACK_PRICE_FACTOR
-    return round(max(matches) * factor, 3)
+    return round(max(matches) * _selection_confidence(price, price_source, text), 3)
 
 
 def extract_prices(text):
@@ -567,7 +634,7 @@ def scan_price_bytes(image_bytes, client=None):
         return _failed_scan()
 
     price, price_source = extract_final_price(text)
-    confidence = price_confidence(price, price_source, words)
+    confidence = price_confidence(price, price_source, words, text)
     if price is None:
         status, reason = STATUS_LOW_CONFIDENCE, REASON_NO_PRICE
     elif confidence < MIN_PRICE_CONFIDENCE:
@@ -700,9 +767,24 @@ def _normalized_size_match(guess, correct):
     return "Y" if compact(guess) == compact(correct) else "N"
 
 
+DEFAULT_FOLDER = "test_images"
+
+
+def results_filename(folder_name):
+    # each folder scores into its own CSV, so one batch never overwrites another's ground truth
+    if folder_name == DEFAULT_FOLDER:
+        return "ocr_results.csv"
+    return f"ocr_results_{folder_name.removeprefix(DEFAULT_FOLDER + '_')}.csv"
+
+
 def main():
-    folder = os.path.join(SCRIPT_DIR, "test_images")
-    results_path = os.path.join(SCRIPT_DIR, "ocr_results.csv")
+    parser = argparse.ArgumentParser(description="Scan price-tag photos and grade the guesses.")
+    parser.add_argument("folder", nargs="?", default=DEFAULT_FOLDER,
+                        help=f"folder of photos beside this script (default: {DEFAULT_FOLDER})")
+    folder_name = parser.parse_args().folder.rstrip("/")
+
+    folder = os.path.join(SCRIPT_DIR, folder_name)
+    results_path = os.path.join(SCRIPT_DIR, results_filename(folder_name))
     ground_truth = load_existing_ground_truth(results_path)
     client = get_vision_client()
     rows = []

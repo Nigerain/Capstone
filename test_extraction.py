@@ -11,6 +11,7 @@ from ocr_test import (
     FALLBACK_PRICE_FACTOR,
     MIN_PRICE_CONFIDENCE,
     _name_candidate_line,
+    _save_triple,
     _normalized_size_match,
     _strip_trailing_codes,
     extract_brand,
@@ -313,6 +314,74 @@ class PriceConfidenceTests(unittest.TestCase):
         unclear = price_confidence("1.79", self.LABELLED, [("1.79", 0.55)])
         self.assertGreaterEqual(clear, MIN_PRICE_CONFIDENCE)
         self.assertLess(unclear, MIN_PRICE_CONFIDENCE)
+
+
+# nestle_morsels.jpg: OCR groups SAVE with the struck-out price, so the markdown
+# lands on its own line and reads as clearly as the price the shopper pays.
+MARKDOWN_TAG = "NESTLE TOLL HOUSE\nSemi-Sweet\nMorsels\n12 oz\nSAVE 5.39\n$1.10\n$4.29\n$7.19 per lb.\n$5.72 per lb."
+
+
+class SaveTripleTests(unittest.TestCase):
+    def test_was_now_and_save_are_recovered(self):
+        self.assertEqual(_save_triple(MARKDOWN_TAG), (5.39, 4.29, 1.10))
+
+    def test_cents_markdown(self):
+        # granulated_sugar.jpg, where the markdown is printed as 70¢
+        text = "LIDL\nGranulated\nSugar\n64 oz\nSAVE 2.99\n70¢\n$2.29\n75¢ per lb.\n58 ¢ per lb."
+        self.assertEqual(_save_triple(text), (2.99, 2.29, 0.70))
+
+    def test_per_unit_rates_cannot_form_the_sum(self):
+        # chocolate_morsels_lidl.jpg: 5.59 - 4.19 also equals the 1.40 markdown, so a
+        # per-lb rate left in the candidates would win and name 4.19 as the price paid
+        text = "LIDL\nSemi-Sweet\nChocolate\nMorsels\n12 oz\nSAVE\n$1.40\n4.19\n$2.79\n$5.59 per lb.\n$ 3.72 per lb."
+        self.assertEqual(_save_triple(text), (4.19, 2.79, 1.40))
+
+    def test_tag_with_no_markdown(self):
+        self.assertIsNone(_save_triple("LIDL\nHoney\n24 oz\n$5.95\n$3.97 per lb."))
+
+    def test_save_wording_but_no_matching_sum(self):
+        self.assertIsNone(_save_triple("SAVE MORE\n$4.00\n$1.25"))
+
+    def test_a_loyalty_tag_is_not_a_markdown(self):
+        # turkey_butterball.jpg: $1.99 is the shelf price, not a struck-out one, so
+        # neither number is a misread. Its saving also exceeds the member price, which
+        # would otherwise read the sum the wrong way round.
+        text = ("BUTTERBALL\nPremium\nTurkey\nRegular Price\n$1.99\nperlb\n"
+                "With Lidl Plus\nSAVE $1.02\n97¢\nperlb")
+        self.assertIsNone(_save_triple(text))
+
+
+class SelectionConfidenceTests(unittest.TestCase):
+    FALLBACK = "fallback: first $ price"
+    WORDS = [("5.39", 0.98), ("$1.10", 0.98), ("$4.29", 0.98)]
+
+    def score(self, price):
+        return price_confidence(price, self.FALLBACK, self.WORDS, MARKDOWN_TAG)
+
+    def test_the_price_paid_scores_like_a_labelled_read(self):
+        self.assertGreaterEqual(self.score("4.29"), MIN_PRICE_CONFIDENCE)
+
+    def test_the_markdown_amount_is_rejected(self):
+        self.assertLess(self.score("1.10"), MIN_PRICE_CONFIDENCE)
+
+    def test_the_struck_out_price_is_rejected(self):
+        self.assertLess(self.score("5.39"), MIN_PRICE_CONFIDENCE)
+
+    def test_a_clear_markdown_read_outscores_a_clear_ordinary_one(self):
+        # the sum backing it is worth more than the fallback discount, so the tags
+        # most likely to be misread are also the ones that score highest when right
+        ordinary = price_confidence("5.95", self.FALLBACK, [("$5.95", 0.98)], "LIDL\nHoney\n$5.95")
+        self.assertGreater(self.score("4.29"), ordinary)
+
+    def test_legibility_still_counts_when_the_sum_agrees(self):
+        blurred = price_confidence("4.29", self.FALLBACK, [("$4.29", 0.42)], MARKDOWN_TAG)
+        self.assertLess(blurred, MIN_PRICE_CONFIDENCE)
+
+    def test_without_tag_text_the_old_fallback_score_is_kept(self):
+        self.assertAlmostEqual(
+            price_confidence("1.10", self.FALLBACK, self.WORDS),
+            0.98 * FALLBACK_PRICE_FACTOR, places=3,
+        )
 
 
 if __name__ == "__main__":
