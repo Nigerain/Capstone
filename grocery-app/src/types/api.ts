@@ -1,6 +1,8 @@
 // Shapes exactly as Ceren's FastAPI returns them (from the Swagger screenshots).
 // Screens should never use these directly; mappers.ts converts them into types/price.ts.
 
+import type { Category } from './price';
+
 export interface ApiStore {
     id: string;
     storeName: string;
@@ -71,6 +73,9 @@ export interface ApiStore {
       // Size as two fields, like the backend's Item: 1.5 + "LB"
       unitAmount: number | null;
       unit: GroceryUnit | null;
+      // Only used when this creates a NEW item; an existing item keeps its
+      // category. Backend still needs to accept it (ItemCategory row).
+      category: Category;
     };
     storeId: string;
     price: number;

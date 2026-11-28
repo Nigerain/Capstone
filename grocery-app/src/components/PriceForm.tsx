@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { CATEGORIES, guessCategory } from '../constants/categories';
 import { useSubmitPrice } from '../hooks/useSubmitPrice';
 import { guessStore } from '../services/storeService';
 import {
@@ -33,7 +34,8 @@ import {
 import { usePickerStore } from '../store/usePickerStore';
 import type { RootStackParamList } from '../navigation/types';
 import type { ScanPhoto } from '../store/useScanStore';
-import { colors, fonts, spacing, typography } from '../theme';
+import { colors, fonts, radius, spacing, typography } from '../theme';
+import type { Category } from '../types/price';
 import type { ScanResult } from '../types/scan';
 import { formatDistance } from '../utils/format';
 
@@ -57,6 +59,7 @@ type FormValues = {
   // (the backend's GroceryUnit). Both empty = no size, which is allowed.
   unitAmount: string;
   unit: GroceryUnit | '';
+  category: Category | ''; // '' until picked or guessed from the item name
   price: string; // kept as typed; parsed on submit
   sharePublicly: boolean;
 };
@@ -73,6 +76,8 @@ function toFormValues(result: ScanResult | null): FormValues {
     brand: result?.brand ?? '',
     // OCR still reads size as one string ("1.5 lb"), so split it to prefill.
     ...scannedSizeFields(result?.unitSize),
+    // OCR can't read a category off a price tag, so guess it from the name.
+    category: guessCategory(result?.itemName ?? '') ?? '',
     price: trustedPrice,
     sharePublicly: true,
   };
@@ -135,10 +140,24 @@ export function PriceForm({
     control,
     handleSubmit,
     setFocus,
-    formState: { errors, isSubmitting },
+    setValue,
+    formState: { errors, isSubmitting, isSubmitted },
   } = useForm<FormValues>({ defaultValues: toFormValues(result) });
 
   const values = useWatch({ control });
+
+  // The category follows the item name (suggested) until the user taps a chip;
+  // after that their choice sticks, even if they edit the name.
+  const [categoryChosen, setCategoryChosen] = useState(false);
+  useEffect(() => {
+    if (categoryChosen) return;
+    // After a failed submit, re-check so "Choose a category" clears
+    // as soon as a guess fills it in.
+    setValue('category', guessCategory(values.itemName ?? '') ?? '', {
+      shouldValidate: isSubmitted,
+    });
+  }, [values.itemName, categoryChosen, isSubmitted, setValue]);
+  const categorySuggested = !categoryChosen && !!values.category;
 
   // A field is "scanned" while it still holds exactly what OCR read.
   // After a scan, any of the four OCR fields left empty is highlighted
@@ -195,6 +214,8 @@ export function PriceForm({
         brand: form.brand,
         unitAmount: form.unitAmount.trim() ? Number(form.unitAmount) : null,
         unit: form.unit || null,
+        // Validation guarantees one is picked by now.
+        category: form.category as Category,
         storeId: store.id,
         price: Number(form.price),
         isPublic: form.sharePublicly,
@@ -356,6 +377,55 @@ export function PriceForm({
             )}
           </View>
           {errors.itemName && <ErrorText message={errors.itemName.message} />}
+
+          {/* Category: where the item shows up on Home's category screens */}
+          <FieldLabel label="Category" />
+          <Controller
+            control={control}
+            name="category"
+            rules={{ validate: (v) => !!v || 'Choose a category' }}
+            render={({ field }) => (
+              <View style={styles.categoryRow} accessibilityRole="radiogroup">
+                {CATEGORIES.map((name) => {
+                  const selected = field.value === name;
+                  return (
+                    <Pressable
+                      key={name}
+                      onPress={() => {
+                        setCategoryChosen(true);
+                        field.onChange(name);
+                      }}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected }}
+                      accessibilityLabel={`Category: ${name}`}
+                      style={({ pressed }) => [
+                        styles.categoryChip,
+                        selected && styles.categoryChipSelected,
+                        errors.category && styles.categoryChipError,
+                        pressed && styles.pressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.categoryText,
+                          selected && styles.categoryTextSelected,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          />
+          {errors.category && <ErrorText message={errors.category.message} />}
+          {categorySuggested && !errors.category && (
+            <Text style={styles.hint}>
+              Suggested from the item name — change if this isn’t right.
+            </Text>
+          )}
 
           {/* Store */}
           <FieldLabel label="Store" />
@@ -947,6 +1017,26 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   metaMissing: { color: colors.needsInput, fontFamily: fonts.bodyMedium },
+  // Five equal chips on one line, like the Figma "v2 with Category" frames.
+  categoryRow: { flexDirection: 'row', gap: 6 },
+  categoryChip: {
+    flex: 1,
+    height: 32,
+    borderRadius: radius.chip,
+    borderWidth: 1,
+    borderColor: colors.card,
+    backgroundColor: colors.field,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  categoryChipSelected: {
+    backgroundColor: colors.darkButton,
+    borderColor: colors.darkButton,
+  },
+  categoryChipError: { borderColor: colors.error },
+  categoryText: { fontFamily: fonts.semibold, fontSize: 13, color: colors.text },
+  categoryTextSelected: { color: colors.onDark },
   storeCard: {
     flexDirection: 'row',
     alignItems: 'center',

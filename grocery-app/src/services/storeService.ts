@@ -53,6 +53,11 @@ const MOCK_STORES: Store[] = [
   },
 ];
 
+// Lets the mock submit (submitService.ts) turn a store id back into a name.
+export function findMockStore(id: string): Store | undefined {
+  return MOCK_STORES.find((store) => store.id === id);
+}
+
 // Closest first; stores with no distance go last.
 function byDistance(a: Store, b: Store): number {
   return (a.distanceMi ?? Infinity) - (b.distanceMi ?? Infinity);

@@ -3,9 +3,10 @@ import type {
   ApiSubmittedPrice,
   GroceryUnit,
 } from '../types/api';
+import type { Category } from '../types/price';
 import { ApiError, apiRequest } from './api';
 import { getAuthToken } from './auth';
-import { searchItems as searchMockItems } from './mockPriceService';
+import { recordMockSubmission } from './mockPriceService';
 
 // Submitting has its own switch, like scanning, because the real endpoint
 // isn't ready for this request yet (see ApiSubmitPrice in types/api.ts).
@@ -100,6 +101,7 @@ export type SubmitPriceInput = {
   brand: string;
   unitAmount: number | null; // null when no size was given
   unit: GroceryUnit | null;
+  category: Category;
   storeId: string;
   price: number;
   isPublic: boolean;
@@ -132,6 +134,7 @@ export function toRequestBody(input: SubmitPriceInput): ApiSubmitPrice {
       brand: input.brand.trim() || null,
       unitAmount: input.unitAmount,
       unit: input.unit,
+      category: input.category,
     },
     storeId: input.storeId,
     // Round to cents, so 1.999 typed by accident can't slip through.
@@ -186,13 +189,14 @@ async function mockSubmit(body: ApiSubmitPrice): Promise<ApiSubmittedPrice> {
   if (status !== undefined)
     throw new ApiError(`mock: submit failed (${status})`, status);
 
-  // Stand-in for the backend's fuzzy match, so "View item" on Price Posted
-  // opens a real mock product. No match = a new item with no page yet.
-  const [match] = await searchMockItems(body.item.itemName);
+  // Stand-in for the backend: adds the price to a matching mock item, or
+  // creates a new item in the chosen category, so it shows up on that
+  // category screen and "View item" on Price Posted opens it.
+  const itemId = recordMockSubmission(body, unitLabel(body.item.unit));
 
   return {
     id: `mock-price-${Date.now()}`,
-    itemId: match?.id ?? '',
+    itemId,
     storeId: body.storeId,
     userId: 'mock-user',
     price: body.price,
