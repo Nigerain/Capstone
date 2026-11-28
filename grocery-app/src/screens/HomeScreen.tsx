@@ -84,8 +84,7 @@ export function HomeScreen() {
             key={name}
             name={name}
             image={image}
-            // TODO: open a category results screen once it's designed.
-            onPress={() => navigation.navigate('Tabs', { screen: 'Search' })}
+            onPress={() => navigation.navigate('Category', { category: name })}
           />
         ))}
       </View>

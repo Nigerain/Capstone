@@ -2,6 +2,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { AddPriceScreen } from '../screens/AddPriceScreen';
 import { CameraScreen } from '../screens/CameraScreen';
+import { CategoryScreen } from '../screens/CategoryScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { PricePostedScreen } from '../screens/PricePostedScreen';
 import { ProductDetailScreen } from '../screens/ProductDetailScreen';
@@ -27,6 +28,8 @@ export function RootNavigator() {
     >
       <Stack.Screen name="Tabs" component={TabNavigator} />
       <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
+      {/* Same level as Product Detail: back button, no tab bar. */}
+      <Stack.Screen name="Category" component={CategoryScreen} />
       {/* Add a Price flow: every step slides up as a sheet over the tabs. */}
       <Stack.Screen
         name="AddPrice"

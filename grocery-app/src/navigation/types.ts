@@ -1,5 +1,6 @@
 import type { NavigatorScreenParams } from '@react-navigation/native';
 
+import type { Category } from '../types/price';
 import type { ScanProblem } from '../types/scan';
 
 export type TabParamList = {
@@ -33,6 +34,8 @@ export type RootStackParamList = {
     fromScan: boolean; // show the scan photo as the thumbnail
   };
   ProductDetail: { itemId: string };
+  // Opened from Home's "Browse categories"; shelves of items by subcategory.
+  Category: { category: Category };
   // `then: 'AddPrice'` = they tapped "+" while signed out; open Add a Price
   // after they sign in, instead of the Profile tab.
   // `then: 'back'` = their session expired on the price form; go back to
